@@ -5,3 +5,50 @@
 @media(max-width:850px){.topbar{height:70px;padding:0 16px}.brand{font-size:19px}.brand-mark{width:38px;height:38px}.workspace{display:block;padding:20px 15px 90px}.sidebar{display:none}.page-heading{align-items:flex-start;flex-direction:column}.user-menu>span:nth-child(2){display:none}.text-button{margin-left:0}.mobile-nav{position:fixed;bottom:0;left:0;right:0;z-index:5;display:flex;gap:4px;overflow-x:auto;background:#fff;border-top:1px solid var(--line);padding:8px max(8px,env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom));box-shadow:0 -8px 24px #10213f0c}.mobile-nav button{flex:1;min-width:78px;border:0;border-radius:9px;padding:9px 5px;background:transparent;color:var(--muted);font-size:10px;font-weight:700}.mobile-nav button.active{background:#e9f7ef;color:var(--green-dark)}.card{padding:15px}.product-row{grid-template-columns:48px minmax(80px,1fr);gap:10px}.product-image{width:46px;height:46px;font-size:24px}.quantity-control{grid-column:2;max-width:260px}.order-foot{align-items:stretch;flex-direction:column}.order-foot button{width:100%}.timeline{font-size:10px;gap:5px}.close-row{grid-template-columns:42px minmax(90px,1fr) minmax(70px,.8fr) 56px;gap:6px}.close-row label:nth-of-type(2){grid-column:2}.close-row label:nth-of-type(1){grid-column:2}.close-row select:nth-of-type(1){grid-column:4;grid-row:2}.close-row select:nth-of-type(2){grid-column:4;grid-row:3}.close-row input:nth-of-type(1){grid-column:3;grid-row:2}.close-row input:nth-of-type(2){grid-column:3;grid-row:3}.close-row .product-image{grid-row:1/4}.close-row>b{grid-column:2/5;grid-row:1}.form-card{padding:14px}.auth-card{padding:24px}.order-head{flex-direction:column}.status{align-self:flex-start}}
 .review-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.review-actions button{min-width:190px}
 @media(max-width:600px){.review-actions{flex-direction:column-reverse}.review-actions button{width:100%}}
+
+
+.primary-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+
+.primary-shortcuts button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--green-dark);
+  font-size: 14px;
+  font-weight: 800;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.primary-shortcuts button:hover {
+  border-color: #b5e1c8;
+  background: #e9f7ef;
+}
+
+.primary-shortcuts button.active {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+}
+
+@media (max-width: 850px) {
+  .primary-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .primary-shortcuts button {
+    min-width: 0;
+    min-height: 48px;
+    padding: 10px 8px;
+    font-size: 13px;
+    line-height: 1.25;
+  }
+}
