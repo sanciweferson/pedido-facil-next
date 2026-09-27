@@ -175,9 +175,40 @@ export default function Workspace({ user, initialProfile }) {
     }
   }
 
+  // Carrega os dados e escuta alterações no banco em tempo real.
   useEffect(() => {
-    loadData()
-  }, [])
+    if (!supabase) return
+
+    void loadData()
+
+    const channel = supabase
+      .channel("pedido-facil-updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => void loadData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
+        () => void loadData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "closeouts" },
+        () => void loadData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "closeout_items" },
+        () => void loadData(),
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
   function flash(text) {
     setNotice(text)
@@ -195,7 +226,7 @@ export default function Workspace({ user, initialProfile }) {
     return unitsByType[product?.unit_type] || ["un"]
   }
 
-  function quantityFor(key, field, fallback, unitFallback) {
+  function quantityFor(key, field, fallback) {
     return quantities[key]?.[field] ?? fallback ?? ""
   }
 
@@ -575,6 +606,7 @@ export default function Workspace({ user, initialProfile }) {
                       Recebimento
                     </span>
                   </div>
+
                   <p className="small muted">
                     {itemsFor(order)
                       .map(
@@ -1103,7 +1135,7 @@ function ProductRow({
           inputMode="decimal"
           type="text"
           placeholder="0"
-          value={quantityFor(keyId, field, amount, unit)}
+          value={quantityFor(keyId, field, amount)}
           onChange={(event) => setQty(keyId, field, event.target.value)}
         />
 
