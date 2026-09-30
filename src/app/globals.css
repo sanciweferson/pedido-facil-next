@@ -10,3 +10,99 @@
 @media print{body{background:#fff;color:#111}.topbar,.sidebar,.mobile-top-nav,.notice,.no-print{display:none!important}.workspace{display:block;max-width:none;padding:0;margin:0}.content{width:100%}.page-heading{margin:0 0 12px}.page-heading h1{font-size:24px}.page-heading .muted{font-size:11px}.report-print-title{display:block;margin:12px 0}.report-print-title .brand{font-size:16px}.report-print-title .brand-mark{display:none}.report-print-title p{font-size:11px}.card{box-shadow:none;border:1px solid #ccc;border-radius:8px;padding:12px;break-inside:avoid}.report-section{margin-bottom:10px}.report-record{break-inside:avoid}.report-line{font-size:10px;grid-template-columns:1.3fr repeat(3,1fr)}.report-record-head{font-size:10px}.report-record-head b{font-size:11px}}
 .notification-toggle{border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--green-dark);font-size:12px;font-weight:800;padding:9px 11px;white-space:nowrap}.notification-toggle.enabled{background:#e9f7ef;border-color:#b5e1c8}.notification-toggle:disabled{cursor:default}.workflow-alert{position:fixed;z-index:20;top:94px;right:20px;width:min(410px,calc(100vw - 32px));display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 18px;background:#fff;border:1px solid #b5e1c8;border-left:5px solid var(--green);border-radius:14px;box-shadow:0 14px 40px #10213f26;animation:alert-in .18s ease-out}.workflow-alert div{display:grid;gap:4px}.workflow-alert b{color:var(--green-dark);font-size:15px}.workflow-alert span{color:var(--ink);font-size:14px;line-height:1.4}.workflow-alert button{border:0;background:transparent;color:var(--muted);font-size:24px;line-height:1;padding:0 2px}.workflow-alert button:hover{color:var(--ink)}@keyframes alert-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:850px){.topbar-actions{gap:8px}.notification-toggle{font-size:0;width:38px;height:38px;padding:0}.notification-toggle:before{content:"🔔";font-size:16px}.sync-indicator{font-size:10px}.workflow-alert{top:78px;right:12px;width:calc(100vw - 24px)}}
+
+
+@media print {
+  html,
+  body,
+  .app-shell,
+  .workspace {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  body {
+    background: #fff;
+    color: #111;
+  }
+
+  .topbar,
+  .sidebar,
+  .mobile-top-nav,
+  .notice,
+  .no-print {
+    display: none !important;
+  }
+
+  .workspace {
+    display: block;
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .content {
+    width: 100%;
+  }
+
+  .page-heading {
+    margin: 0 0 12px;
+  }
+
+  .page-heading h1 {
+    font-size: 24px;
+  }
+
+  .page-heading .muted {
+    font-size: 11px;
+  }
+
+  .report-print-title {
+    display: block;
+    margin: 12px 0;
+  }
+
+  .report-print-title .brand {
+    font-size: 16px;
+  }
+
+  .report-print-title .brand-mark {
+    display: none;
+  }
+
+  .report-print-title p {
+    font-size: 11px;
+  }
+
+  .card {
+    box-shadow: none;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 12px;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .report-section,
+  .report-record {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-section {
+    margin-bottom: 10px;
+  }
+
+  .report-line {
+    font-size: 10px;
+    grid-template-columns: 1.3fr repeat(3, 1fr);
+  }
+
+  .report-record-head {
+    font-size: 10px;
+  }
+
+  .report-record-head b {
+    font-size: 11px;
+  }
+}
