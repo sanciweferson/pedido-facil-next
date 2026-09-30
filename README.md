@@ -104,3 +104,8 @@ Os registros usam horário do banco (`timestamptz`); a interface apresenta as da
 ## Atualizar o catálogo de produtos
 
 Depois de aplicar os arquivos do projeto, abra o **SQL Editor** do Supabase e execute o conteúdo de `supabase/catalogo-produtos-adicionais.sql`. O script adiciona os novos itens por setor e pode ser executado novamente sem duplicar produtos. Ele também desativa o item duplicado “Frango cozido desfiado”, preservando pedidos antigos. As quatro porções com peso fixo ficam cadastradas como `un`, e o peso aparece no nome para que o funcionário informe apenas a quantidade de porções.
+# Foto de perfil e tema
+
+Para habilitar o envio de fotos, execute uma vez `supabase/profile-avatars.sql` no SQL Editor do Supabase. O script cria o bucket público de imagens e políticas para que cada conta só possa enviar, substituir e excluir arquivos dentro da própria pasta. Fotos têm limite de 5 MB.
+
+O tema segue a preferência do dispositivo na primeira visita e, depois que o usuário escolhe claro ou escuro no menu do perfil, essa escolha fica salva no navegador.

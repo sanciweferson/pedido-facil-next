@@ -101,6 +101,11 @@ function OrderCard({ order, action, actionText, children, sectorLabel, user, pro
 export default function Workspace({ user, initialProfile }) {
   const supabase = useMemo(() => createClient(), []);
   const [profile] = useState(initialProfile);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [theme, setTheme] = useState("light");
+  const [avatarUrl, setAvatarUrl] = useState(user.user_metadata?.avatar_url || "");
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef(null);
   const [view, setView] = useState("home");
   const [sectors, setSectors] = useState([]);
   const [products, setProducts] = useState([]);
@@ -132,6 +137,67 @@ export default function Workspace({ user, initialProfile }) {
   const [reportItems, setReportItems] = useState([]);
   const [reportCloseouts, setReportCloseouts] = useState([]);
   const [reportCloseoutItems, setReportCloseoutItems] = useState([]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const savedTheme = window.localStorage.getItem("pedido-facil-theme");
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = value => {
+      setTheme(value);
+      root.dataset.theme = value;
+    };
+    applyTheme(savedTheme || (media.matches ? "dark" : "light"));
+    if (savedTheme) return undefined;
+    const followDeviceTheme = event => {
+      if (!window.localStorage.getItem("pedido-facil-theme")) applyTheme(event.matches ? "dark" : "light");
+    };
+    media.addEventListener?.("change", followDeviceTheme);
+    return () => media.removeEventListener?.("change", followDeviceTheme);
+  }, []);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [profileMenuOpen]);
+
+  function toggleTheme() {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    window.localStorage.setItem("pedido-facil-theme", nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    setTheme(nextTheme);
+  }
+
+  async function uploadAvatar(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return flash("Escolha um arquivo de imagem.");
+    if (file.size > 5 * 1024 * 1024) return flash("A foto precisa ter no máximo 5 MB.");
+    if (!supabase) return flash("Supabase não está configurado.");
+    const extension = file.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+    const path = `${user.id}/avatar.${extension}`;
+    setAvatarBusy(true);
+    const { error: uploadError } = await supabase.storage.from("profile-avatars").upload(path, file, {
+      upsert: true,
+      contentType: file.type,
+      cacheControl: "3600",
+    });
+    if (uploadError) {
+      setAvatarBusy(false);
+      return flash(uploadError.message.includes("row-level security") ? "Execute a configuração de fotos no SQL Editor do Supabase e tente novamente." : uploadError.message);
+    }
+    const { data } = supabase.storage.from("profile-avatars").getPublicUrl(path);
+    const nextUrl = `${data.publicUrl}?v=${Date.now()}`;
+    const { error: profileError } = await supabase.auth.updateUser({ data: { avatar_url: nextUrl } });
+    setAvatarBusy(false);
+    if (profileError) return flash(profileError.message);
+    setAvatarUrl(nextUrl);
+    flash("Foto de perfil atualizada.");
+  }
 
   async function loadData() {
     if (!supabase) return;
@@ -553,13 +619,13 @@ export default function Workspace({ user, initialProfile }) {
   }
 
   const realtimeConnected = realtimeStatus === "SUBSCRIBED";
-  return <main className="app-shell">
+  return <main className={`app-shell ${profile.role === "requester" ? "app-shell-requester" : ""}`}>
     <header className="topbar">
       <Brand />
       <div className="topbar-actions">
         {notificationSupported && <button type="button" className={`notification-toggle ${notificationPermission === "granted" ? "enabled" : ""}`} onClick={enableNotifications} aria-label={notificationPermission === "granted" ? "Testar notificações do dispositivo" : "Ativar notificações do dispositivo"}>{notificationPermission === "granted" ? "Testar alertas" : notificationPermission === "denied" ? "Alertas bloqueados" : "Ativar alertas"}</button>}
         <span className={`sync-indicator ${realtimeConnected ? "online" : "offline"}`} title={`Supabase Realtime: ${realtimeStatus}`}><i />{realtimeConnected ? "Ao vivo" : "Atualizando…"}</span>
-        <div className="user-menu"><span className="avatar">{profile.full_name?.[0]?.toUpperCase() || "?"}</span><span><b>{profile.full_name}</b><small>{roleNames[profile.role]}{profile.sector_id ? ` · ${sectorLabel(profile.sector_id)}` : ""}</small></span><button className="text-button" onClick={logout}>Sair</button></div>
+        <div className="user-menu"><button type="button" className="profile-menu-trigger" onClick={() => setProfileMenuOpen(true)} aria-label="Abrir perfil e configurações">{avatarUrl ? <img className="avatar" src={avatarUrl} alt="" /> : <span className="avatar">{profile.full_name?.[0]?.toUpperCase() || "?"}</span>}</button></div>
       </div>
     </header>
     <nav className="mobile-top-nav" aria-label="Navegação principal">
@@ -570,6 +636,23 @@ export default function Workspace({ user, initialProfile }) {
       <aside className="sidebar"><p className="eyebrow">MENU</p>{nav.map(([id, label]) => <button key={id} className={`nav-item ${view === id ? "active" : ""}`} onClick={() => setView(id)}>{label}</button>)}<button className="nav-item" onClick={loadData}>↻ Atualizar</button></aside>
       <section className="content">{notice && <div className="notice">{notice}</div>}{renderView()}</section>
     </div>
+    {profileMenuOpen && <div className="profile-drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setProfileMenuOpen(false); }}>
+      <aside className="profile-drawer" role="dialog" aria-modal="true" aria-labelledby="profile-drawer-title">
+        <div className="profile-drawer-heading"><div><p className="eyebrow">SUA CONTA</p><h2 id="profile-drawer-title">Perfil e preferências</h2></div><button className="drawer-close" type="button" onClick={() => setProfileMenuOpen(false)} aria-label="Fechar menu">×</button></div>
+        <div className="profile-details">
+          <button type="button" className="profile-photo-button" onClick={() => avatarInputRef.current?.click()} disabled={avatarBusy} aria-label="Alterar foto de perfil">
+            {avatarUrl ? <img src={avatarUrl} alt="Foto de perfil" /> : <span>{profile.full_name?.[0]?.toUpperCase() || "?"}</span>}
+            <i>{avatarBusy ? "…" : "＋"}</i>
+          </button>
+          <input ref={avatarInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadAvatar} />
+          <div className="profile-identity"><b>{profile.full_name}</b><span>{user.email || "E-mail não disponível"}</span><small>{roleNames[profile.role]}{profile.sector_id ? ` · ${sectorLabel(profile.sector_id)}` : ""}</small></div>
+        </div>
+        <p className="profile-photo-hint">Toque na foto para escolher outra imagem (até 5 MB).</p>
+        <div className="drawer-divider" />
+        <div className="theme-setting"><div><b>Aparência</b><small>{theme === "dark" ? "Tema escuro" : "Tema claro"}</small></div><button type="button" className="theme-toggle" onClick={toggleTheme} aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}><span aria-hidden="true">{theme === "dark" ? "☾" : "☀"}</span><b>{theme === "dark" ? "Escuro" : "Claro"}</b></button></div>
+        <button type="button" className="drawer-logout" onClick={logout}>Sair da conta</button>
+      </aside>
+    </div>}
   </main>;
 }
 
