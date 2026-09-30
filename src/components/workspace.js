@@ -150,7 +150,7 @@ export default function Workspace({ user, initialProfile }) {
     window.clearTimeout(workflowAlertTimerRef.current);
     workflowAlertTimerRef.current = window.setTimeout(() => setWorkflowAlert(null), 7000);
 
-    if (document.visibilityState !== "visible" && "Notification" in window && Notification.permission === "granted") {
+    if ("Notification" in window && "serviceWorker" in navigator && Notification.permission === "granted") {
       const registrationPromise = notificationRegistrationRef.current
         ? Promise.resolve(notificationRegistrationRef.current)
         : navigator.serviceWorker.ready;
@@ -160,7 +160,8 @@ export default function Workspace({ user, initialProfile }) {
         data: { url: "/dashboard" },
         renotify: true,
       })).catch(error => console.warn("Não foi possível mostrar a notificação:", error));
-    } else if (document.visibilityState === "visible" && "vibrate" in navigator) {
+    }
+    if (document.visibilityState === "visible" && "vibrate" in navigator) {
       navigator.vibrate([120, 70, 120]);
     }
   }
