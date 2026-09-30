@@ -78,6 +78,8 @@ where p.user_id = u.id and lower(u.email) = lower('EMAIL_DO_JANIEL');
 
 Substitua os textos de e-mail antes de executar cada consulta. Para adicionar outro solicitante, use `role = 'requester'` e escolha o setor em `sector_id`.
 
+O papel `admin` tem acesso amplo a todos os setores e etapas. Use-o apenas para administração. Para o uso diário do Sanci, deixe o perfil como `requester` na Pizzaria; assim ele verá os pedidos do setor e as telas de solicitar, receber e fechar. Douglas fica como `separator`, e Janiel como `inventory`. O papel atribuído no perfil, e não apenas os botões da tela, define as permissões no banco.
+
 ## Fluxo do protótipo
 
 1. O solicitante cria um pedido e escolhe uma unidade explícita para cada quantidade (`g`, `kg`, `ml`, `L` ou `un`).
@@ -93,3 +95,7 @@ Os registros usam horário do banco (`timestamptz`); a interface apresenta as da
 - Os setores e poucos produtos iniciais são exemplos; o SQL pode ser editado para refletir a lista real.
 - O app usa contas individuais. Os papéis e setores são liberados pelo administrador, não escolhidos livremente como permissão no cadastro.
 - Este é um protótipo para teste. Antes de substituir o processo oficial, valide o fluxo com a empresa e revise as permissões para a operação real.
+- A tela **Acompanhar pedidos** filtra a lista quando você seleciona um setor. A tela **Relatórios** permite escolher um período e setor e usar a impressão do navegador para salvar como PDF.
+- Para receber atualizações em tempo real, execute `supabase/enable_realtime.sql` uma vez no SQL Editor do Supabase. O painel mostra o estado da conexão; se ela cair, a tela ainda atualiza ao recuperar foco/conexão e faz uma consulta de segurança a cada 30 segundos enquanto estiver aberta.
+- O painel também mostra alertas quando um pedido muda de etapa. Para receber notificações do dispositivo com o app aberto em segundo plano, toque em **Ativar alertas** e permita as notificações no navegador. Isso depende de a página continuar aberta e conectada; para avisos depois de fechar o navegador será preciso configurar Web Push no servidor.
+- O relatório separa pedidos pela data de criação e retornos/avarias pela data em que o fechamento foi enviado. As permissões existentes de RLS continuam limitando os dados exibidos para cada perfil.
