@@ -233,8 +233,12 @@ export default function Workspace({ user, initialProfile }) {
         : navigator.serviceWorker.ready;
       registrationPromise.then(registration => registration.showNotification(title, {
         body,
+        icon: "/pedido-facil-notification.svg",
+        badge: "/pedido-facil-notification.svg",
         tag,
         data: { url: "/dashboard" },
+        timestamp: Date.now(),
+        vibrate: [120, 70, 120],
         renotify: true,
       })).catch(error => console.warn("Não foi possível mostrar a notificação:", error));
     }
@@ -251,26 +255,26 @@ export default function Workspace({ user, initialProfile }) {
 
     if (payload.eventType === "INSERT" && order.status === "requested") {
       if (["separator", "inventory", "admin"].includes(profile.role)) {
-        showWorkflowAlert("Novo pedido", `${code} da ${sectorName} aguarda atendimento.`, `order-${order.id}-requested`);
+        showWorkflowAlert(`${sectorName} · Novo pedido`, `${code} de ${order.requester_name || "um solicitante"} aguarda separação.`, `order-${order.id}-requested`);
       }
       return;
     }
 
     if (payload.eventType !== "UPDATE") return;
     if (order.status === "separated" && previous.status !== "separated" && order.requester_id === user.id) {
-      showWorkflowAlert("Pedido separado", `${code} está pronto para você conferir.`, `order-${order.id}-separated`);
+      showWorkflowAlert(`${sectorName} · Pedido separado`, `${code} está pronto. Confira os itens recebidos.`, `order-${order.id}-separated`);
     }
     if (order.status === "received" && previous.status !== "received" && ["separator", "admin"].includes(profile.role)) {
-      showWorkflowAlert("Recebimento confirmado", `${code} da ${sectorName} foi recebido.`, `order-${order.id}-received`);
+      showWorkflowAlert(`${sectorName} · Recebimento confirmado`, `${order.requester_name || "O solicitante"} confirmou o recebimento de ${code}.`, `order-${order.id}-received`);
     }
     if (order.status === "return_submitted" && previous.status !== "return_submitted" && ["inventory", "admin"].includes(profile.role)) {
-      showWorkflowAlert("Retorno para conferir", `${code} da ${sectorName} aguarda conferência.`, `order-${order.id}-return`);
+      showWorkflowAlert(`${sectorName} · Retorno para conferir`, `${order.requester_name || "O solicitante"} enviou o fechamento de ${code}. Confira sobras e avarias.`, `order-${order.id}-return`);
     }
     if (order.status === "closed" && previous.status !== "closed" && order.requester_id === user.id) {
-      showWorkflowAlert("Fechamento concluído", `O retorno de ${code} foi conferido.`, `order-${order.id}-closed`);
+      showWorkflowAlert(`${sectorName} · Retorno concluído`, `O retorno de ${code} foi conferido.`, `order-${order.id}-closed`);
     }
     if (order.inventory_logged_at && !previous.inventory_logged_at && order.requester_id === user.id) {
-      showWorkflowAlert("Saída lançada", `A saída de ${code} foi registrada no estoque.`, `order-${order.id}-inventory`);
+      showWorkflowAlert(`${sectorName} · Saída lançada`, `A saída de ${code} foi registrada no estoque.`, `order-${order.id}-inventory`);
     }
   }
 
@@ -285,6 +289,8 @@ export default function Workspace({ user, initialProfile }) {
         notificationRegistrationRef.current = registration;
         await registration.showNotification("Pedido Fácil · teste de alerta", {
           body: "As notificações deste dispositivo estão funcionando.",
+          icon: "/pedido-facil-notification.svg",
+          badge: "/pedido-facil-notification.svg",
           tag: "pedido-facil-test",
           data: { url: "/dashboard" },
         });
@@ -297,6 +303,8 @@ export default function Workspace({ user, initialProfile }) {
         notificationRegistrationRef.current = await navigator.serviceWorker.register("/sw.js");
         await notificationRegistrationRef.current.showNotification("Pedido Fácil · alertas ativados", {
           body: "Este dispositivo está pronto para receber notificações.",
+          icon: "/pedido-facil-notification.svg",
+          badge: "/pedido-facil-notification.svg",
           tag: "pedido-facil-test",
           data: { url: "/dashboard" },
         });
