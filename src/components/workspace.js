@@ -233,8 +233,8 @@ export default function Workspace({ user, initialProfile }) {
         : navigator.serviceWorker.ready;
       registrationPromise.then(registration => registration.showNotification(title, {
         body,
-        icon: "/pedido-facil-notification.svg?v=2",
-        badge: "/pedido-facil-notification.svg?v=2",
+        icon: "/pedido-facil-mark.svg?v=3",
+        badge: "/pedido-facil-mark.svg?v=3",
         tag,
         data: { url: "/dashboard" },
         timestamp: Date.now(),
@@ -287,10 +287,10 @@ export default function Workspace({ user, initialProfile }) {
       if (Notification.permission === "granted") {
         const registration = notificationRegistrationRef.current || await navigator.serviceWorker.ready;
         notificationRegistrationRef.current = registration;
-        await registration.showNotification("Pizzaria · Pedido separado", {
-          body: "PED-TESTE está pronto. Confira os itens recebidos.",
-          icon: "/pedido-facil-notification.svg?v=2",
-          badge: "/pedido-facil-notification.svg?v=2",
+        await registration.showNotification("Pedido Fácil · Alerta de teste", {
+          body: "As notificações do Pedido Fácil estão ativadas neste dispositivo.",
+          icon: "/pedido-facil-mark.svg?v=3",
+          badge: "/pedido-facil-mark.svg?v=3",
           tag: "pedido-facil-test",
           data: { url: "/dashboard" },
         });
@@ -301,10 +301,10 @@ export default function Workspace({ user, initialProfile }) {
       setNotificationPermission(permission);
       if (permission === "granted") {
         notificationRegistrationRef.current = await navigator.serviceWorker.register("/sw.js");
-        await notificationRegistrationRef.current.showNotification("Pizzaria · Pedido separado", {
-          body: "PED-TESTE está pronto. Confira os itens recebidos.",
-          icon: "/pedido-facil-notification.svg?v=2",
-          badge: "/pedido-facil-notification.svg?v=2",
+        await notificationRegistrationRef.current.showNotification("Pedido Fácil · Alerta de teste", {
+          body: "As notificações do Pedido Fácil estão ativadas neste dispositivo.",
+          icon: "/pedido-facil-mark.svg?v=3",
+          badge: "/pedido-facil-mark.svg?v=3",
           tag: "pedido-facil-test",
           data: { url: "/dashboard" },
         });
