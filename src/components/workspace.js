@@ -46,7 +46,7 @@ function displayAmount(amount, unit) {
 function groupItemsByCategory(rows = []) {
   const groups = new Map();
   for (const item of rows) {
-    const category = item.product?.category || item.category || "Geral";
+    const category = item.product?.category || item.order_item?.product?.category || item.category || "Geral";
     if (!groups.has(category)) groups.set(category, []);
     groups.get(category).push(item);
   }
@@ -484,35 +484,44 @@ export default function Workspace({ user, initialProfile }) {
     setView("reviewClose");
   }
 
+  function closeoutDraftRows(order) {
+    return items.filter(item => item.order_id === order.id).map(item => {
+      const row = quantities[`close:${item.id}`] || {};
+      const returnAmount = parseAmount(row.returnAmount ?? 0);
+      const returnUnit = row.returnUnit || item.received_unit || item.requested_unit;
+      const damageAmount = parseAmount(row.damageAmount ?? 0);
+      const damageUnit = row.damageUnit || item.received_unit || item.requested_unit;
+      return {
+        ...item,
+        returnAmount,
+        returnUnit,
+        returnBase: toBase(returnAmount, returnUnit),
+        damageAmount,
+        damageUnit,
+        damageBase: toBase(damageAmount, damageUnit),
+      };
+    });
+  }
+
   async function submitCloseout() {
     const order = selectedCloseOrder;
     if (!order) return;
-    const orderItems = items.filter(item => item.order_id === order.id);
-    for (const item of orderItems) {
-      const row = quantities[`close:${item.id}`] || {};
-      const returned = parseAmount(row.returnAmount ?? 0);
-      const damaged = parseAmount(row.damageAmount ?? 0);
-      if (!Number.isFinite(returned) || returned < 0 || !Number.isFinite(damaged) || damaged < 0) {
+    const draftRows = closeoutDraftRows(order);
+    for (const item of draftRows) {
+      if (!Number.isFinite(item.returnAmount) || item.returnAmount < 0 || !Number.isFinite(item.damageAmount) || item.damageAmount < 0) {
         return flash(`Digite quantidades válidas para ${item.product_name}.`);
       }
-      const returnUnit = row.returnUnit || item.received_unit || item.requested_unit;
-      const damageUnit = row.damageUnit || item.received_unit || item.requested_unit;
       const receivedBase = Number(item.received_base ?? toBase(item.received_amount, item.received_unit));
-      if (toBase(returned, returnUnit) + toBase(damaged, damageUnit) > receivedBase) {
+      if (item.returnBase + item.damageBase > receivedBase) {
         return flash(`Retorno + avaria de ${item.product_name} não podem superar o que foi recebido.`);
       }
     }
+    const rowsToSend = draftRows.filter(item => item.returnBase > 0 || item.damageBase > 0);
+    if (!rowsToSend.length) return flash("Informe pelo menos uma sobra ou avaria. Itens com quantidade zero não serão enviados.");
     setBusy(true);
     const { data: closeout, error } = await supabase.from("closeouts").insert({ order_id: order.id, sector_id: order.sector_id, submitted_by: user.id, status: "submitted" }).select().single();
     if (error) { setBusy(false); return flash(error.message); }
-    const closeoutItems = orderItems.map(item => {
-      const key = `close:${item.id}`;
-      const returnAmount = parseAmount(quantities[key]?.returnAmount || 0);
-      const returnUnit = quantities[key]?.returnUnit || item.received_unit || item.requested_unit;
-      const damageAmount = parseAmount(quantities[key]?.damageAmount || 0);
-      const damageUnit = quantities[key]?.damageUnit || item.received_unit || item.requested_unit;
-      return { closeout_id: closeout.id, order_item_id: item.id, product_name: item.product_name, emoji: item.emoji, return_amount: returnAmount, return_unit: returnUnit, return_base: toBase(returnAmount, returnUnit), damage_amount: damageAmount, damage_unit: damageUnit, damage_base: toBase(damageAmount, damageUnit) };
-    });
+    const closeoutItems = rowsToSend.map(item => ({ closeout_id: closeout.id, order_item_id: item.id, product_name: item.product_name, emoji: item.emoji, return_amount: item.returnAmount, return_unit: item.returnUnit, return_base: item.returnBase, damage_amount: item.damageAmount, damage_unit: item.damageUnit, damage_base: item.damageBase }));
     const { error: rowsError } = await supabase.from("closeout_items").insert(closeoutItems);
     if (rowsError) {
       await supabase.from("closeouts").delete().eq("id", closeout.id);
@@ -604,15 +613,18 @@ export default function Workspace({ user, initialProfile }) {
 
     if (view === "request") return <><div className="page-heading"><div><p className="eyebrow">NOVA REQUISIÇÃO</p><h1>Fazer pedido</h1><p className="muted">Seu nome e o horário ficam registrados automaticamente.</p></div></div><form className="card form-card" onSubmit={submitOrder}><label>Setor<select value={sectorId} onChange={e => { setSectorId(e.target.value); setOpenProductCategory(""); }} disabled={profile.role === "requester" && Boolean(profile.sector_id)} required>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="section-title"><h2>Produtos do setor</h2><span>{products.filter(item => item.sector_id === sectorId).length} itens</span></div><div className="product-categories">{sortedRequestProductGroups.map(([category, categoryProducts], index) => { const groupKey = `${sectorId}:${category}`; const isOpen = openProductCategory === groupKey; const panelId = `product-category-${index}`; return <section className={`product-category ${isOpen ? "open" : ""}`} key={groupKey}><button type="button" className="product-category-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenProductCategory(isOpen ? "" : groupKey)}><span className="product-category-label">{category}<small>{categoryProducts.length} {categoryProducts.length === 1 ? "produto" : "produtos"}</small></span><span className="product-category-chevron" aria-hidden="true">⌄</span></button>{isOpen && <div id={panelId} className="product-category-items">{categoryProducts.map(product => <ProductRow {...sharedProductProps} key={product.id} product={product} keyId={product.id} amount="" unit={unitsFor(product)[0]} />)}</div>}</section>; })}</div><div className="helper">As porções prontas são contadas por unidade. Para os demais itens, escolha g, kg, ml, L ou un.</div><button className="primary full" disabled={busy}>{busy ? "Enviando…" : "Enviar pedido"}</button></form></>;
 
-    if (view === "separate") return <><PageTitle title="Pedidos para separar" text="Douglas: confira os itens e informe o que conseguiu separar." />{orders.filter(order => order.status === "requested").map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmSeparation} actionText="Confirmar separação">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <section className="order-category" key={category}><h4>{category}</h4>{categoryItems.map(item => <ProductRow {...sharedProductProps} key={item.id} product={item} keyId={`${order.id}:${item.id}`} field="amount" amount={item.requested_amount} unit={item.requested_unit} label={`Solicitado: ${displayAmount(item.requested_amount, item.requested_unit)}`} />)}</section>)}</OrderCard>)}{orders.every(order => order.status !== "requested") && <Empty text="Não há pedidos aguardando separação." />}</>;
+    if (view === "separate") return <><PageTitle title="Pedidos para separar" text="Douglas: confira os itens e informe o que conseguiu separar." />{orders.filter(order => order.status === "requested").map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmSeparation} actionText="Confirmar separação">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "produto" : "produtos"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <ProductRow {...sharedProductProps} key={item.id} product={item} keyId={`${order.id}:${item.id}`} field="amount" amount={item.requested_amount} unit={item.requested_unit} label={`Solicitado: ${displayAmount(item.requested_amount, item.requested_unit)}`} />)}</div></details>)}</OrderCard>)}{orders.every(order => order.status !== "requested") && <Empty text="Não há pedidos aguardando separação." />}</>;
 
     if (view === "receive") return <><PageTitle title="Confirmar recebimento" text="Confira o que chegou antes de confirmar." />{orders.filter(order => order.status === "separated" && order.requester_id === user.id).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmReceipt} actionText="Confirmar recebimento">{itemsFor(order).map(item => <ProductRow {...sharedProductProps} key={item.id} product={item} keyId={`${order.id}:${item.id}`} amount={item.separated_amount} unit={item.separated_unit} label={`Separado: ${displayAmount(item.separated_amount, item.separated_unit)}`} />)}</OrderCard>)}{orders.every(order => order.status !== "separated" || order.requester_id !== user.id) && <Empty text="Você não tem pedidos separados aguardando confirmação." />}</>;
 
     if (view === "close") return <><PageTitle title="Retorno e avarias" text="Informe o que sobrou e o que foi perdido ou danificado." />{orders.filter(order => order.status === "received" && order.requester_id === user.id).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={reviewCloseout} actionText="Revisar fechamento">{itemsFor(order).map(item => <div className="close-row" key={item.id}><div className="product-image">{item.emoji || "📦"}</div><b>{item.product_name}</b><label>Retorno <input type="text" inputMode="decimal" placeholder="0" value={quantities[`close:${item.id}`]?.returnAmount ?? 0} onChange={e => setQty(`close:${item.id}`, "returnAmount", e.target.value)} /></label><select value={quantities[`close:${item.id}`]?.returnUnit || item.received_unit || item.requested_unit} onChange={e => setQty(`close:${item.id}`, "returnUnit", e.target.value)}>{unitsFor(item).map(unit => <option key={unit}>{unit}</option>)}</select><label>Avaria <input type="text" inputMode="decimal" placeholder="0" value={quantities[`close:${item.id}`]?.damageAmount ?? 0} onChange={e => setQty(`close:${item.id}`, "damageAmount", e.target.value)} /></label><select value={quantities[`close:${item.id}`]?.damageUnit || item.received_unit || item.requested_unit} onChange={e => setQty(`close:${item.id}`, "damageUnit", e.target.value)}>{unitsFor(item).map(unit => <option key={unit}>{unit}</option>)}</select></div>)}</OrderCard>)}{orders.every(order => order.status !== "received" || order.requester_id !== user.id) && <Empty text="Não há pedidos recebidos aguardando fechamento." />}</>;
 
-    if (view === "reviewClose" && selectedCloseOrder) return <><PageTitle title="Revisar fechamento" text="Confira o retorno e as avarias antes de enviar para o Janiel." /><article className="card order-card"><p className="eyebrow">{sectorLabel(selectedCloseOrder.sector_id)} · {selectedCloseOrder.order_code}</p><h2>Solicitante: {profile.full_name}</h2>{itemsFor(selectedCloseOrder).map(item => { const key = `close:${item.id}`; const row = quantities[key] || {}; return <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><span>Retorno <b>{displayAmount(parseAmount(row.returnAmount || 0), row.returnUnit || item.received_unit || item.requested_unit)}</b> · Avaria <b>{displayAmount(parseAmount(row.damageAmount || 0), row.damageUnit || item.received_unit || item.requested_unit)}</b></span></div>; })}<p className="helper">Ao confirmar, Janiel verá estes valores para conferir fisicamente e lançar no sistema da empresa.</p><div className="review-actions"><button className="secondary" onClick={() => setView("close")}>Voltar e editar</button><button className="primary" disabled={busy} onClick={submitCloseout}>{busy ? "Enviando…" : "Confirmar e enviar ao Janiel"}</button></div></article></>;
+    if (view === "reviewClose" && selectedCloseOrder) {
+      const previewRows = closeoutDraftRows(selectedCloseOrder).filter(item => item.returnBase > 0 || item.damageBase > 0);
+      return <><PageTitle title="Revisar fechamento" text="Confira somente os itens com sobra ou avaria antes de enviar." /><article className="card order-card"><p className="eyebrow">{sectorLabel(selectedCloseOrder.sector_id)} · {selectedCloseOrder.order_code}</p><h2>Solicitante: {profile.full_name}</h2><div className="closeout-accordion-list">{groupItemsByCategory(previewRows).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "item para conferir" : "itens para conferir"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <div className="closeout-review-row" key={item.id}><div className="closeout-review-name"><span>{item.emoji || "📦"}</span><b>{item.product_name}</b></div><div className="closeout-amounts">{item.returnBase > 0 && <span className="closeout-amount returned">Voltou <b>{displayAmount(item.returnAmount, item.returnUnit)}</b></span>}{item.damageBase > 0 && <span className="closeout-amount damaged">Avaria <b>{displayAmount(item.damageAmount, item.damageUnit)}</b></span>}</div></div>)}</div></details>)}</div><p className="helper">Itens com retorno e avaria zerados ficam fora do envio. Janiel receberá apenas o que sobrou ou foi descartado.</p><div className="review-actions"><button className="secondary" onClick={() => setView("close")}>Voltar e editar</button><button className="primary" disabled={busy || !previewRows.length} onClick={submitCloseout}>{busy ? "Enviando…" : "Confirmar e enviar ao Janiel"}</button></div></article></>;
+    }
 
-    if (view === "inventory") return <><PageTitle title="Lançar saída" text="Janiel: registre a saída no controle de estoque da empresa. Pode lançar antes ou depois da separação." />{orders.filter(order => !order.inventory_logged_at).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={markInventory} actionText="Marcar saída lançada">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <section className="order-category" key={category}><h4>{category}</h4>{categoryItems.map(item => <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><b>{displayAmount(item.requested_amount, item.requested_unit)}</b></div>)}</section>)}</OrderCard>)}{orders.every(order => order.inventory_logged_at) && <Empty text="Todas as saídas visíveis já foram lançadas." />}</>;
+    if (view === "inventory") return <><PageTitle title="Lançar saída" text="Janiel: registre a saída no controle de estoque da empresa. Pode lançar antes ou depois da separação." />{orders.filter(order => !order.inventory_logged_at).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={markInventory} actionText="Marcar saída lançada">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "produto" : "produtos"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><b>{displayAmount(item.requested_amount, item.requested_unit)}</b></div>)}</div></details>)}</OrderCard>)}{orders.every(order => order.inventory_logged_at) && <Empty text="Todas as saídas visíveis já foram lançadas." />}</>;
 
     if (view === "confirmReturn") return <><PageTitle title="Conferir retorno" text="Janiel: confira o que voltou e registre o fechamento no sistema da empresa." />{closeouts.filter(row => row.status === "submitted").map(row => <CloseoutCard key={row.id} closeout={row} supabase={supabase} action={confirmCloseout} busy={busy} />)}{closeouts.every(row => row.status !== "submitted") && <Empty text="Nenhum retorno aguardando conferência." />}</>;
     return null;
@@ -661,6 +673,20 @@ function Empty({ text }) { return <div className="empty card"><span>✓</span><h
 
 function CloseoutCard({ closeout, supabase, action, busy }) {
   const [rows, setRows] = useState([]);
-  useEffect(() => { supabase.from("closeout_items").select("*").eq("closeout_id", closeout.id).then(({ data }) => setRows(data || [])); }, [closeout.id, supabase]);
-  return <article className="card order-card"><div className="order-head"><div><span className="eyebrow">{closeout.sector?.name} · {closeout.order?.order_code}</span><h3>Retorno de {closeout.order?.requester_name}</h3></div><span className="status status-return_submitted">Aguardando conferência</span></div><p className="small muted">Enviado em {localTime(closeout.created_at)}</p>{rows.map(item => <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><span>Voltou: <b>{displayAmount(item.return_amount, item.return_unit)}</b> · Avaria: <b>{displayAmount(item.damage_amount, item.damage_unit)}</b></span></div>)}<div className="order-foot"><span className="small muted">A confirmação registra também o lançamento do retorno.</span><button className="primary" disabled={busy} onClick={() => action(closeout)}>Confirmar retorno e lançamento</button></div></article>;
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    supabase.from("closeout_items").select("*, order_item:order_items(product:products(category))").eq("closeout_id", closeout.id).then(({ data }) => {
+      setRows((data || []).filter(item => Number(item.return_base) > 0 || Number(item.damage_base) > 0));
+      setLoaded(true);
+    });
+  }, [closeout.id, supabase]);
+  const categories = groupItemsByCategory(rows);
+  return <article className="card order-card closeout-card">
+    <div className="order-head"><div><span className="eyebrow">{closeout.sector?.name} · {closeout.order?.order_code}</span><h3>Retorno de {closeout.order?.requester_name}</h3></div><span className="status status-return_submitted">Aguardando conferência</span></div>
+    <p className="small muted">Enviado em {localTime(closeout.created_at)}</p>
+    <div className="closeout-accordion-list">{categories.map(([category, categoryRows]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryRows.length} {categoryRows.length === 1 ? "item para conferir" : "itens para conferir"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryRows.map(item => <div className="closeout-review-row" key={item.id}><div className="closeout-review-name"><span>{item.emoji || "📦"}</span><b>{item.product_name}</b></div><div className="closeout-amounts">{Number(item.return_base) > 0 && <span className="closeout-amount returned">Voltou <b>{displayAmount(item.return_amount, item.return_unit)}</b></span>}{Number(item.damage_base) > 0 && <span className="closeout-amount damaged">Avaria <b>{displayAmount(item.damage_amount, item.damage_unit)}</b></span>}</div></div>)}</div></details>)}</div>
+    {!loaded && <p className="muted">Carregando itens do retorno…</p>}
+    {loaded && !rows.length && <p className="closeout-empty-note">Este fechamento não possui sobras ou avarias para conferir.</p>}
+    <div className="order-foot"><span className="small muted">Confira os itens informados antes de registrar o fechamento.</span><button className="primary" disabled={busy || !loaded} onClick={() => action(closeout)}>Confirmar retorno e lançamento</button></div>
+  </article>;
 }
