@@ -104,6 +104,7 @@ export default function Workspace({ user, initialProfile }) {
   const [notificationSupported, setNotificationSupported] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState("default");
   const [sectorId, setSectorId] = useState(profile.sector_id || "");
+  const [openProductCategory, setOpenProductCategory] = useState("");
   const [quantities, setQuantities] = useState({});
   const [selectedSectorFilter, setSelectedSectorFilter] = useState("all");
   const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
@@ -484,6 +485,15 @@ export default function Workspace({ user, initialProfile }) {
   const sectorLabel = id => sectors.find(row => row.id === id)?.name || "Setor";
   const reportOrderRows = reportSectorId === "all" ? reportOrders : reportOrders.filter(order => order.sector_id === reportSectorId);
   const reportCloseoutRows = reportSectorId === "all" ? reportCloseouts : reportCloseouts.filter(row => row.sector_id === reportSectorId);
+  const requestProductGroups = products
+    .filter(product => product.sector_id === sectorId)
+    .reduce((groups, product) => {
+      const category = product.category || "Geral";
+      (groups[category] ||= []).push(product);
+      return groups;
+    }, {});
+  const sortedRequestProductGroups = Object.entries(requestProductGroups)
+    .sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
 
   const sharedCardProps = { sectorLabel, user, profile, busy };
   const sharedProductProps = { unitsFor, quantityFor, setQty };
@@ -516,7 +526,7 @@ export default function Workspace({ user, initialProfile }) {
       </section>
     </>;
 
-    if (view === "request") return <><div className="page-heading"><div><p className="eyebrow">NOVA REQUISIÇÃO</p><h1>Fazer pedido</h1><p className="muted">Seu nome e o horário ficam registrados automaticamente.</p></div></div><form className="card form-card" onSubmit={submitOrder}><label>Setor<select value={sectorId} onChange={e => setSectorId(e.target.value)} disabled={profile.role === "requester" && Boolean(profile.sector_id)} required>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="section-title"><h2>Produtos do setor</h2><span>{products.filter(item => item.sector_id === sectorId).length} itens</span></div>{products.filter(item => item.sector_id === sectorId).map(product => <ProductRow {...sharedProductProps} key={product.id} product={product} keyId={product.id} amount="" unit={unitsFor(product)[0]} />)}<div className="helper">A unidade é escolhida para cada produto: g, kg, ml, L ou un.</div><button className="primary full" disabled={busy}>{busy ? "Enviando…" : "Enviar pedido"}</button></form></>;
+    if (view === "request") return <><div className="page-heading"><div><p className="eyebrow">NOVA REQUISIÇÃO</p><h1>Fazer pedido</h1><p className="muted">Seu nome e o horário ficam registrados automaticamente.</p></div></div><form className="card form-card" onSubmit={submitOrder}><label>Setor<select value={sectorId} onChange={e => { setSectorId(e.target.value); setOpenProductCategory(""); }} disabled={profile.role === "requester" && Boolean(profile.sector_id)} required>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="section-title"><h2>Produtos do setor</h2><span>{products.filter(item => item.sector_id === sectorId).length} itens</span></div><div className="product-categories">{sortedRequestProductGroups.map(([category, categoryProducts], index) => { const groupKey = `${sectorId}:${category}`; const isOpen = openProductCategory === groupKey; const panelId = `product-category-${index}`; return <section className={`product-category ${isOpen ? "open" : ""}`} key={groupKey}><button type="button" className="product-category-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenProductCategory(isOpen ? "" : groupKey)}><span className="product-category-label">{category}<small>{categoryProducts.length} {categoryProducts.length === 1 ? "produto" : "produtos"}</small></span><span className="product-category-chevron" aria-hidden="true">⌄</span></button>{isOpen && <div id={panelId} className="product-category-items">{categoryProducts.map(product => <ProductRow {...sharedProductProps} key={product.id} product={product} keyId={product.id} amount="" unit={unitsFor(product)[0]} />)}</div>}</section>; })}</div><div className="helper">As porções prontas são contadas por unidade. Para os demais itens, escolha g, kg, ml, L ou un.</div><button className="primary full" disabled={busy}>{busy ? "Enviando…" : "Enviar pedido"}</button></form></>;
 
     if (view === "separate") return <><PageTitle title="Pedidos para separar" text="Douglas: confira os itens e informe o que conseguiu separar." />{orders.filter(order => order.status === "requested").map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmSeparation} actionText="Confirmar separação">{itemsFor(order).map(item => <ProductRow {...sharedProductProps} key={item.id} product={item} keyId={`${order.id}:${item.id}`} field="amount" amount={item.requested_amount} unit={item.requested_unit} label={`Solicitado: ${displayAmount(item.requested_amount, item.requested_unit)}`} />)}</OrderCard>)}{orders.every(order => order.status !== "requested") && <Empty text="Não há pedidos aguardando separação." />}</>;
 

@@ -100,3 +100,7 @@ Os registros usam horário do banco (`timestamptz`); a interface apresenta as da
 - O painel também mostra alertas quando um pedido muda de etapa. Toque em **Ativar alertas** e permita as notificações do navegador para receber avisos do sistema enquanto a página estiver conectada. Isso não envia avisos depois que a página/navegador são fechados; para isso será preciso configurar Web Push no servidor.
 - No celular, a navegação principal fica no topo em uma grade de até três colunas, sem rolagem horizontal. Os campos de quantidade mantêm o foco durante a digitação. Depois de permitir as notificações, o botão do sino passa a **Testar alertas** para confirmar que o navegador exibe notificações.
 - O relatório separa pedidos pela data de criação e retornos/avarias pela data em que o fechamento foi enviado. As permissões existentes de RLS continuam limitando os dados exibidos para cada perfil.
+
+## Atualizar o catálogo de produtos
+
+Depois de aplicar os arquivos do projeto, abra o **SQL Editor** do Supabase e execute o conteúdo de `supabase/catalogo-produtos-adicionais.sql`. O script adiciona os novos itens por setor e pode ser executado novamente sem duplicar produtos. As quatro porções com peso fixo ficam cadastradas como `un`, e o peso aparece no nome para que o funcionário informe apenas a quantidade de porções.
