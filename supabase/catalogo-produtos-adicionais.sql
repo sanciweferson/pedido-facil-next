@@ -25,7 +25,6 @@ from (values
   -- Pizzaria: proteínas e preparos
   ('pizzaria','Carne de sol ralada','Proteínas','weight','🥩'),
   ('pizzaria','Frango desfiado','Proteínas','weight','🍗'),
-  ('pizzaria','Frango cozido desfiado','Proteínas','weight','🍗'),
   ('pizzaria','Frango para cozinhar','Proteínas','weight','🍗'),
   -- Pizzaria: complementos e embalagens
   ('pizzaria','Ovos','Ovos e laticínios','count','🥚'),
@@ -66,3 +65,9 @@ from (values
 ) as p(sector_slug, name, category, unit_type, emoji)
 join public.sectors s on s.slug = p.sector_slug
 on conflict (sector_id, name) do nothing;
+
+-- Preserva possíveis pedidos antigos, mas tira o item duplicado da lista ativa.
+update public.products
+set is_active = false
+where sector_id = (select id from public.sectors where slug = 'pizzaria')
+  and name = 'Frango cozido desfiado';

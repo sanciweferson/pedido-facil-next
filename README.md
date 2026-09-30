@@ -103,4 +103,4 @@ Os registros usam horário do banco (`timestamptz`); a interface apresenta as da
 
 ## Atualizar o catálogo de produtos
 
-Depois de aplicar os arquivos do projeto, abra o **SQL Editor** do Supabase e execute o conteúdo de `supabase/catalogo-produtos-adicionais.sql`. O script adiciona os novos itens por setor e pode ser executado novamente sem duplicar produtos. As quatro porções com peso fixo ficam cadastradas como `un`, e o peso aparece no nome para que o funcionário informe apenas a quantidade de porções.
+Depois de aplicar os arquivos do projeto, abra o **SQL Editor** do Supabase e execute o conteúdo de `supabase/catalogo-produtos-adicionais.sql`. O script adiciona os novos itens por setor e pode ser executado novamente sem duplicar produtos. Ele também desativa o item duplicado “Frango cozido desfiado”, preservando pedidos antigos. As quatro porções com peso fixo ficam cadastradas como `un`, e o peso aparece no nome para que o funcionário informe apenas a quantidade de porções.
