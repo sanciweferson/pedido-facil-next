@@ -83,10 +83,10 @@ O papel `admin` tem acesso amplo a todos os setores e etapas. Use-o apenas para 
 ## Fluxo do protótipo
 
 1. O solicitante cria um pedido e escolhe uma unidade explícita para cada quantidade (`g`, `kg`, `ml`, `L` ou `un`).
-2. Douglas registra a separação.
-3. O solicitante confere e confirma o recebimento.
+2. Douglas confere e confirma a separação. A quantidade originalmente pedida não é alterada; se houver algum detalhe (produto já existente no setor, falta em estoque, peça fechada etc.), ele pode registrar uma observação.
+3. Só depois da separação Janiel pode registrar a saída no controle da empresa. O solicitante confere e confirma o recebimento.
 4. O solicitante informa retorno e avarias; a tela de revisão confirma o envio.
-5. Janiel registra a saída no controle da empresa e confirma o retorno recebido.
+5. Janiel confirma o retorno recebido.
 
 Os registros usam horário do banco (`timestamptz`); a interface apresenta as datas no fuso de São Paulo. Quantidades de peso também são normalizadas para gramas (`1 kg = 1000 g`), sem adivinhar a unidade digitada.
 
