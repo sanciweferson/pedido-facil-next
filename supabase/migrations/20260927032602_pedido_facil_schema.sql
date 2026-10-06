@@ -47,6 +47,7 @@ create table public.orders (
   received_at timestamptz,
   inventory_logged_by uuid references public.profiles(user_id),
   inventory_logged_at timestamptz,
+  separation_note text check (separation_note is null or char_length(separation_note) <= 500),
   created_at timestamptz not null default now()
 );
 
@@ -165,7 +166,7 @@ begin
      and old.status = 'requested' and new.status = 'separated'
      and new.separated_by = (select auth.uid())
      and new.separated_at is not null
-     and (to_jsonb(new) - array['status','separated_by','separated_at']) = (to_jsonb(old) - array['status','separated_by','separated_at']) then
+     and (to_jsonb(new) - array['status','separated_by','separated_at','separation_note']) = (to_jsonb(old) - array['status','separated_by','separated_at','separation_note']) then
     return new;
   end if;
 
@@ -183,7 +184,9 @@ begin
   end if;
 
   if actor_role = 'inventory' then
-    if old.status = new.status
+    if old.status <> 'requested'
+       and old.status = new.status
+       and old.inventory_logged_at is null
        and new.inventory_logged_by = (select auth.uid())
        and new.inventory_logged_at is not null
        and (to_jsonb(new) - array['inventory_logged_by','inventory_logged_at']) = (to_jsonb(old) - array['inventory_logged_by','inventory_logged_at']) then
@@ -213,6 +216,9 @@ begin
   if actor_role = 'admin' then return new; end if;
 
   if actor_role = 'separator' and parent_order.status = 'requested'
+     and new.separated_amount = old.requested_amount
+     and new.separated_unit = old.requested_unit
+     and new.separated_base = old.requested_base
      and (to_jsonb(new) - array['separated_amount','separated_unit','separated_base']) = (to_jsonb(old) - array['separated_amount','separated_unit','separated_base']) then
     return new;
   end if;

@@ -95,7 +95,7 @@ function ProductRow({ product, amount, unit, label, keyId, field = "amount", uni
 }
 
 function OrderCard({ order, action, actionText, children, sectorLabel, user, profile, busy }) {
-  return <article className="card order-card"><div className="order-head"><div><span className="eyebrow">{sectorLabel(order.sector_id)} · {order.order_code}</span><h3>{order.requester_name}</h3></div><span className={`status status-${order.status}`}>{statusNames[order.status]}</span></div><p className="muted small">Pedido criado em {localTime(order.created_at)}</p>{children}<div className="order-foot">{order.inventory_logged_at ? <span className="small success-text">Saída lançada por {order.inventory_logged_by === user.id ? profile.full_name : "responsável"}</span> : <span className="small muted">Lançamento do estoque pendente</span>}{action && <button className="primary" disabled={busy} onClick={() => action(order)}>{actionText}</button>}</div></article>;
+  return <article className="card order-card"><div className="order-head"><div><span className="eyebrow">{sectorLabel(order.sector_id)} · {order.order_code}</span><h3>{order.requester_name}</h3></div><span className={`status status-${order.status}`}>{statusNames[order.status]}</span></div><p className="muted small">Pedido criado em {localTime(order.created_at)}</p>{order.separation_note && <p className="helper"><b>Observação da separação:</b> {order.separation_note}</p>}{children}<div className="order-foot">{order.inventory_logged_at ? <span className="small success-text">Saída lançada por {order.inventory_logged_by === user.id ? profile.full_name : "responsável"}</span> : <span className="small muted">Lançamento do estoque pendente</span>}{action && <button className="primary" disabled={busy} onClick={() => action(order)}>{actionText}</button>}</div></article>;
 }
 
 export default function Workspace({ user, initialProfile }) {
@@ -121,6 +121,7 @@ export default function Workspace({ user, initialProfile }) {
   const [sectorId, setSectorId] = useState(profile.sector_id || "");
   const [openProductCategory, setOpenProductCategory] = useState("");
   const [quantities, setQuantities] = useState({});
+  const [separationNotes, setSeparationNotes] = useState({});
   const [selectedSectorFilter, setSelectedSectorFilter] = useState("all");
   const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
   const loadDataRef = useRef(null);
@@ -463,12 +464,34 @@ export default function Workspace({ user, initialProfile }) {
     }
   }
 
+  async function copyRequestedToSeparated(order) {
+    for (const item of items.filter(row => row.order_id === order.id)) {
+      const { error } = await supabase.from("order_items").update({
+        separated_amount: item.requested_amount,
+        separated_unit: item.requested_unit,
+        separated_base: item.requested_base,
+      }).eq("id", item.id);
+      if (error) throw error;
+    }
+  }
+
   async function confirmSeparation(order) {
     setBusy(true);
     try {
-      await setOrderItems(order, "separated", "requested_amount");
-      const { error } = await supabase.from("orders").update({ status: "separated", separated_by: user.id, separated_at: new Date().toISOString() }).eq("id", order.id);
+      await copyRequestedToSeparated(order);
+      const separationNote = (separationNotes[order.id] || "").trim();
+      const { error } = await supabase.from("orders").update({
+        status: "separated",
+        separated_by: user.id,
+        separated_at: new Date().toISOString(),
+        separation_note: separationNote || null,
+      }).eq("id", order.id);
       if (error) throw error;
+      setSeparationNotes(current => {
+        const next = { ...current };
+        delete next[order.id];
+        return next;
+      });
       await loadData();
       flash("Separação confirmada.");
     } catch (error) { flash(error.message); }
@@ -546,6 +569,7 @@ export default function Workspace({ user, initialProfile }) {
   }
 
   async function markInventory(order) {
+    if (order.status === "requested") return flash("A saída só pode ser lançada depois que a separação for confirmada.");
     setBusy(true);
     const { error } = await supabase.from("orders").update({ inventory_logged_by: user.id, inventory_logged_at: new Date().toISOString() }).eq("id", order.id);
     setBusy(false);
@@ -621,7 +645,7 @@ export default function Workspace({ user, initialProfile }) {
 
     if (view === "request") return <><div className="page-heading"><div><p className="eyebrow">NOVA REQUISIÇÃO</p><h1>Fazer pedido</h1><p className="muted">Seu nome e o horário ficam registrados automaticamente.</p></div></div><form className="card form-card" onSubmit={submitOrder}><label>Setor<select value={sectorId} onChange={e => { setSectorId(e.target.value); setOpenProductCategory(""); }} disabled={profile.role === "requester" && Boolean(profile.sector_id)} required>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="section-title"><h2>Produtos do setor</h2><span>{products.filter(item => item.sector_id === sectorId).length} itens</span></div><div className="product-categories">{sortedRequestProductGroups.map(([category, categoryProducts], index) => { const groupKey = `${sectorId}:${category}`; const isOpen = openProductCategory === groupKey; const panelId = `product-category-${index}`; return <section className={`product-category ${isOpen ? "open" : ""}`} key={groupKey}><button type="button" className="product-category-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenProductCategory(isOpen ? "" : groupKey)}><span className="product-category-label">{category}<small>{categoryProducts.length} {categoryProducts.length === 1 ? "produto" : "produtos"}</small></span><span className="product-category-chevron" aria-hidden="true">⌄</span></button>{isOpen && <div id={panelId} className="product-category-items">{categoryProducts.map(product => <ProductRow {...sharedProductProps} key={product.id} product={product} keyId={product.id} amount="" unit={unitsFor(product)[0]} />)}</div>}</section>; })}</div><div className="helper">As porções prontas são contadas por unidade. Para os demais itens, escolha g, kg, ml, L ou un.</div><button className="primary full" disabled={busy}>{busy ? "Enviando…" : "Enviar pedido"}</button></form></>;
 
-    if (view === "separate") return <><PageTitle title="Pedidos para separar" text="Douglas: confira os itens e informe o que conseguiu separar." />{orders.filter(order => order.status === "requested").map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmSeparation} actionText="Confirmar separação">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "produto" : "produtos"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <ProductRow {...sharedProductProps} key={item.id} product={item} keyId={`${order.id}:${item.id}`} field="amount" amount={item.requested_amount} unit={item.requested_unit} label={`Solicitado: ${displayAmount(item.requested_amount, item.requested_unit)}`} />)}</div></details>)}</OrderCard>)}{orders.every(order => order.status !== "requested") && <Empty text="Não há pedidos aguardando separação." />}</>;
+    if (view === "separate") return <><PageTitle title="Pedidos para separar" text="Douglas: confira o pedido. As quantidades originais não podem ser alteradas; use a observação quando precisar explicar alguma diferença ou detalhe da separação." />{orders.filter(order => order.status === "requested").map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmSeparation} actionText="Confirmar separação">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "produto" : "produtos"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><b>{displayAmount(item.requested_amount, item.requested_unit)}</b></div>)}</div></details>)}<label>Observação da separação<textarea maxLength={500} rows={3} placeholder="Ex.: já havia produto no setor, peça fechada, falta no estoque..." value={separationNotes[order.id] || ""} onChange={event => setSeparationNotes(current => ({ ...current, [order.id]: event.target.value }))} /></label></OrderCard>)}{orders.every(order => order.status !== "requested") && <Empty text="Não há pedidos aguardando separação." />}</>;
 
     if (view === "receive") return <><PageTitle title="Confirmar recebimento" text="Confira o que chegou antes de confirmar." />{orders.filter(order => order.status === "separated" && order.requester_id === user.id).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={confirmReceipt} actionText="Confirmar recebimento">{itemsFor(order).map(item => <ProductRow {...sharedProductProps} key={item.id} product={item} keyId={`${order.id}:${item.id}`} amount={item.separated_amount} unit={item.separated_unit} label={`Separado: ${displayAmount(item.separated_amount, item.separated_unit)}`} />)}</OrderCard>)}{orders.every(order => order.status !== "separated" || order.requester_id !== user.id) && <Empty text="Você não tem pedidos separados aguardando confirmação." />}</>;
 
@@ -632,7 +656,7 @@ export default function Workspace({ user, initialProfile }) {
       return <><PageTitle title="Revisar fechamento" text="Confira somente os itens com sobra ou avaria antes de enviar." /><article className="card order-card"><p className="eyebrow">{sectorLabel(selectedCloseOrder.sector_id)} · {selectedCloseOrder.order_code}</p><h2>Solicitante: {profile.full_name}</h2><div className="closeout-accordion-list">{groupItemsByCategory(previewRows).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "item para conferir" : "itens para conferir"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <div className="closeout-review-row" key={item.id}><div className="closeout-review-name"><span>{item.emoji || "📦"}</span><b>{item.product_name}</b></div><div className="closeout-amounts">{item.returnBase > 0 && <span className="closeout-amount returned">Voltou <b>{displayAmount(item.returnAmount, item.returnUnit)}</b></span>}{item.damageBase > 0 && <span className="closeout-amount damaged">Avaria <b>{displayAmount(item.damageAmount, item.damageUnit)}</b></span>}</div></div>)}</div></details>)}</div><p className="helper">Itens com retorno e avaria zerados ficam fora do envio. Janiel receberá apenas o que sobrou ou foi descartado.</p><div className="review-actions"><button className="secondary" onClick={() => setView("close")}>Voltar e editar</button><button className="primary" disabled={busy || !previewRows.length} onClick={submitCloseout}>{busy ? "Enviando…" : "Confirmar e enviar ao Janiel"}</button></div></article></>;
     }
 
-    if (view === "inventory") return <><PageTitle title="Lançar saída" text="Janiel: registre a saída no controle de estoque da empresa. Pode lançar antes ou depois da separação." />{orders.filter(order => !order.inventory_logged_at).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={markInventory} actionText="Marcar saída lançada">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "produto" : "produtos"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><b>{displayAmount(item.requested_amount, item.requested_unit)}</b></div>)}</div></details>)}</OrderCard>)}{orders.every(order => order.inventory_logged_at) && <Empty text="Todas as saídas visíveis já foram lançadas." />}</>;
+    if (view === "inventory") return <><PageTitle title="Lançar saída" text="Janiel: registre a saída somente depois que Douglas confirmar a separação." />{orders.filter(order => order.status !== "requested" && !order.inventory_logged_at).map(order => <OrderCard {...sharedCardProps} key={order.id} order={order} action={markInventory} actionText="Marcar saída lançada">{groupItemsByCategory(itemsFor(order)).map(([category, categoryItems]) => <details className="category-accordion" key={category}><summary><span>{category}<small>{categoryItems.length} {categoryItems.length === 1 ? "produto" : "produtos"}</small></span><i aria-hidden="true">⌄</i></summary><div className="category-accordion-content">{categoryItems.map(item => <div className="simple-item" key={item.id}><span>{item.emoji || "📦"} {item.product_name}</span><b>{displayAmount(item.separated_amount ?? item.requested_amount, item.separated_unit ?? item.requested_unit)}</b></div>)}</div></details>)}</OrderCard>)}{orders.every(order => order.status === "requested" || order.inventory_logged_at) && <Empty text="Não há saídas aguardando lançamento depois da separação." />}</>;
 
     if (view === "confirmReturn") return <><PageTitle title="Conferir retorno" text="Janiel: confira o que voltou e registre o fechamento no sistema da empresa." />{closeouts.filter(row => row.status === "submitted").map(row => <CloseoutCard key={row.id} closeout={row} supabase={supabase} action={confirmCloseout} busy={busy} />)}{closeouts.every(row => row.status !== "submitted") && <Empty text="Nenhum retorno aguardando conferência." />}</>;
     return null;
