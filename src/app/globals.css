@@ -89,3 +89,61 @@
   .inventory-state{width:100%;padding:2px 1px}
   .inventory-state small{font-size:11.5px}
 }
+
+
+/* Pré-preparo: lotes independentes de pedidos. */
+.prep-panel{display:grid;gap:18px}
+.prep-heading{gap:12px}
+.prep-new-batch,.prep-section{padding:20px}
+.prep-new-grid{display:grid;grid-template-columns:minmax(220px,2fr) minmax(130px,1fr) 100px auto;gap:12px;align-items:end}
+.prep-new-grid label,.prep-output-form label,.prep-notes{display:grid;gap:6px;color:var(--muted);font-size:12px;font-weight:700}
+.prep-new-grid input,.prep-new-grid select,.prep-output-form input,.prep-output-form select,.prep-scraps input,.prep-scraps select,.prep-notes textarea{width:100%;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:10px 12px;font:inherit;outline:none}
+.prep-new-grid input:focus,.prep-new-grid select:focus,.prep-output-form input:focus,.prep-output-form select:focus,.prep-scraps input:focus,.prep-scraps select:focus,.prep-notes textarea:focus{border-color:var(--green);box-shadow:0 0 0 3px #169b621a}
+.prep-batch-list,.prep-history{display:grid;gap:10px}
+.prep-batch-card{width:100%;display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px;text-align:left;color:var(--ink)}
+.prep-batch-card:hover{border-color:#b5e1c8;transform:translateY(-1px)}
+.prep-product-icon{display:grid;place-items:center;width:56px;height:56px;border-radius:14px;background:#eef5f1;font-size:29px}
+.prep-batch-info{display:grid;gap:5px;min-width:0}
+.prep-batch-info b{font-size:16px}
+.prep-batch-info small{color:var(--muted);line-height:1.4}
+.prep-open{color:var(--green-dark);font-weight:800}
+.prep-batch-hero{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:16px;align-items:center;padding:20px}
+.prep-batch-hero h2{margin:2px 0 6px}
+.prep-batch-hero p{margin:0}
+.prep-status{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:800}
+.prep-status.in-progress{background:#eaf3ff;color:#1768aa}
+.prep-output-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.prep-output-row>div{display:grid;gap:4px}
+.prep-output-row small{color:var(--muted)}
+.prep-delete{width:34px;height:34px;border:1px solid #f0c7c7;border-radius:50%;background:#fff5f5;color:#a83c3c;font-size:22px}
+.prep-output-form{display:grid;grid-template-columns:1fr .8fr 1.1fr auto;gap:10px;align-items:end;margin-top:16px}
+.prep-scraps{display:grid;grid-template-columns:minmax(120px,1fr) 90px;gap:8px;max-width:320px;margin-bottom:14px}
+.prep-notes textarea{resize:vertical;min-height:82px}
+.prep-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;border:1px solid #ccebd9;border-radius:16px;background:#ccebd9}
+.prep-summary>div{display:grid;gap:5px;padding:16px;background:#eefaf3}
+.prep-summary small{color:#557365}
+.prep-summary b{font-size:18px;color:var(--green-dark)}
+.prep-actions{display:flex;justify-content:flex-end;gap:10px}
+.prep-history-row{display:flex;align-items:center;gap:12px;padding:12px 14px}
+.prep-history-row>span{font-size:26px}
+.prep-history-row>div{display:grid;gap:4px}
+.prep-history-row small{color:var(--muted)}
+:root[data-theme="dark"] .prep-product-icon{background:#26372f}
+:root[data-theme="dark"] .prep-delete{background:#2d2020;border-color:#5c3434;color:#f2a4a4}
+:root[data-theme="dark"] .prep-summary{background:#315143;border-color:#315143}
+:root[data-theme="dark"] .prep-summary>div{background:#19382c}
+:root[data-theme="dark"] .prep-summary small{color:#9fc5b1}
+
+@media(max-width:850px){
+  .prep-new-batch,.prep-section{padding:16px}
+  .prep-new-grid{grid-template-columns:minmax(0,1fr) 90px}
+  .prep-new-grid label:first-child{grid-column:1/-1}
+  .prep-new-grid .primary{grid-column:1/-1;width:100%}
+  .prep-output-form{grid-template-columns:1fr 1fr}
+  .prep-output-form label:nth-child(3){grid-column:1/-1}
+  .prep-output-form .secondary{grid-column:1/-1;width:100%}
+  .prep-batch-hero{grid-template-columns:56px minmax(0,1fr)}
+  .prep-batch-hero .prep-status{grid-column:1/-1;justify-self:start}
+  .prep-summary{grid-template-columns:1fr 1fr}
+  .prep-actions{display:grid;grid-template-columns:1fr 1fr}
+}
