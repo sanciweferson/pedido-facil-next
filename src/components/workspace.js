@@ -627,8 +627,9 @@ export default function Workspace({ user, initialProfile }) {
   }
 
   const baseNav = navByRole[profile.role] || navByRole.requester;
-  const isKitchenRequester = profile.role === "requester" && sectors.some(sector => sector.id === profile.sector_id && sector.slug === "cozinha");
-  const nav = profile.role === "requester" && !isKitchenRequester
+  const requesterSector = sectors.find(sector => sector.id === profile.sector_id);
+  const canSeePreparedStock = profile.role !== "requester" || ["cozinha", "pizzaria"].includes(requesterSector?.slug);
+  const nav = profile.role === "requester" && !canSeePreparedStock
     ? baseNav.filter(([id]) => id !== "preparedStock")
     : baseNav;
   const visibleOrders = selectedSectorFilter === "all" ? orders : orders.filter(order => order.sector_id === selectedSectorFilter);
