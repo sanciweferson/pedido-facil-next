@@ -18,57 +18,126 @@ function kgFromBase(value) {
   return (Number(value || 0) / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 }
 
+function localDate(value) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+
+function dateInput(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(date);
+}
+
+function dayStart(value) {
+  return new Date(`${value}T00:00:00-03:00`);
+}
+
+function nextDay(value) {
+  const date = dayStart(value);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date;
+}
+
+function formatStock(row, value = row.balance_base) {
+  const amount = Number(value || 0);
+  if (row.stock_type === "weight") {
+    if (Math.abs(amount) >= 1000) return `${(amount / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg`;
+    return `${amount.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} g`;
+  }
+  return `${amount.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} un`;
+}
+
 export default function PreparationPanel({ user, flash }) {
   const supabase = useMemo(() => createClient(), []);
+  const [section, setSection] = useState("dashboard");
   const [inputs, setInputs] = useState([]);
-  const [destinations, setDestinations] = useState([]);
+  const [preparedItems, setPreparedItems] = useState([]);
   const [batches, setBatches] = useState([]);
   const [outputs, setOutputs] = useState([]);
+  const [stock, setStock] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [openOutputCategory, setOpenOutputCategory] = useState("Porções");
   const [busy, setBusy] = useState(false);
 
   const [newInputId, setNewInputId] = useState("");
   const [newAmount, setNewAmount] = useState("");
   const [newUnit, setNewUnit] = useState("kg");
-
-  const [portionGrams, setPortionGrams] = useState("");
-  const [portionQuantity, setPortionQuantity] = useState("");
-  const [destinationId, setDestinationId] = useState("");
+  const [drafts, setDrafts] = useState({});
   const [scrapsAmount, setScrapsAmount] = useState("");
   const [scrapsUnit, setScrapsUnit] = useState("kg");
   const [notes, setNotes] = useState("");
 
-  async function load() {
-    const [{ data: inputRows, error: inputError }, { data: destinationRows, error: destinationError }, { data: batchRows, error: batchError }] = await Promise.all([
+  const today = dateInput();
+  const [reportStart, setReportStart] = useState(today);
+  const [reportEnd, setReportEnd] = useState(today);
+
+  async function load({ quiet = false } = {}) {
+    if (!quiet) setBusy(true);
+    const [
+      { data: inputRows, error: inputError },
+      { data: itemRows, error: itemError },
+      { data: batchRows, error: batchError },
+      { data: stockRows, error: stockError },
+    ] = await Promise.all([
       supabase.from("prep_inputs").select("*").eq("is_active", true).order("category").order("name"),
-      supabase.from("prep_destinations").select("*").eq("is_active", true).order("name"),
-      supabase.from("prep_batches").select("*, input:prep_inputs(name,category,emoji)").order("created_at", { ascending: false }).limit(80),
+      supabase.from("prepared_items").select("*, destination:sectors(name,slug)").eq("is_active", true).order("category").order("name"),
+      supabase.from("prep_batches").select("*, input:prep_inputs(name,category,emoji)").order("created_at", { ascending: false }).limit(250),
+      supabase.rpc("get_prepared_stock"),
     ]);
-    const firstError = inputError || destinationError || batchError;
+    const firstError = inputError || itemError || batchError || stockError;
     if (firstError) {
-      flash?.("O módulo de pré-preparo ainda precisa da migration do banco.");
+      if (!quiet) setBusy(false);
+      flash?.(firstError.message);
       return;
     }
+
     setInputs(inputRows || []);
-    setDestinations(destinationRows || []);
+    setPreparedItems(itemRows || []);
     setBatches(batchRows || []);
+    setStock(stockRows || []);
     if (!newInputId && inputRows?.length) setNewInputId(inputRows[0].id);
-    if (!destinationId && destinationRows?.length) setDestinationId(destinationRows[0].id);
 
     const ids = (batchRows || []).map(row => row.id);
-    if (!ids.length) {
+    if (ids.length) {
+      const { data: outputRows, error: outputError } = await supabase
+        .from("prep_outputs")
+        .select("*, prepared_item:prepared_items(name,category,emoji,stock_type,portion_grams,default_unit,destination_sector_id,destination:sectors(name))")
+        .in("batch_id", ids)
+        .order("created_at");
+      if (outputError) flash?.(outputError.message);
+      else setOutputs(outputRows || []);
+    } else {
       setOutputs([]);
-      return;
     }
-    const { data: outputRows } = await supabase.from("prep_outputs").select("*, destination:prep_destinations(name)").in("batch_id", ids).order("created_at");
-    setOutputs(outputRows || []);
+    if (!quiet) setBusy(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const channel = supabase
+      .channel("preparation-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "prep_batches" }, () => load({ quiet: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "prep_outputs" }, () => load({ quiet: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => load({ quiet: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "closeout_items" }, () => load({ quiet: true }))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const selectedBatch = batches.find(row => row.id === selectedBatchId) || null;
   const selectedOutputs = selectedBatch ? outputs.filter(row => row.batch_id === selectedBatch.id) : [];
-  const producedBase = selectedOutputs.reduce((sum, row) => sum + Number(row.portion_grams) * Number(row.quantity), 0);
+  const availableOutputs = selectedBatch ? preparedItems.filter(row => row.source_input_id === selectedBatch.input_id) : [];
+  const outputGroups = Object.entries(availableOutputs.reduce((acc, item) => {
+    const key = item.category || "Preparados";
+    (acc[key] ||= []).push(item);
+    return acc;
+  }, {})).sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
+
+  const producedBase = selectedOutputs.reduce((sum, row) => {
+    if (row.prepared_item?.stock_type === "weight") return sum + Number(row.amount_base || 0);
+    if (Number(row.portion_grams) > 0) return sum + Number(row.portion_grams) * Number(row.quantity || 0);
+    return sum;
+  }, 0);
+  const hasUnweighedOutput = selectedOutputs.some(row => row.prepared_item?.stock_type === "count" && !Number(row.portion_grams) && Number(row.quantity) > 0);
   const scrapsBase = toBase(scrapsAmount || selectedBatch?.scraps_amount || 0, scrapsUnit || selectedBatch?.scraps_unit || "kg");
   const inputBase = Number(selectedBatch?.input_base || 0);
   const remainingBase = Math.max(0, inputBase - producedBase - scrapsBase);
@@ -78,7 +147,20 @@ export default function PreparationPanel({ user, flash }) {
     setScrapsAmount(selectedBatch.scraps_amount || "");
     setScrapsUnit(selectedBatch.scraps_unit || "kg");
     setNotes(selectedBatch.notes || "");
-  }, [selectedBatchId]);
+    const nextDrafts = {};
+    for (const item of preparedItems.filter(row => row.source_input_id === selectedBatch.input_id)) {
+      const existing = outputs.find(row => row.batch_id === selectedBatch.id && row.prepared_item_id === item.id);
+      if (item.stock_type === "weight") {
+        nextDrafts[item.id] = {
+          amount: existing?.amount ?? "",
+          unit: existing?.amount_unit || item.default_unit || "kg",
+        };
+      } else {
+        nextDrafts[item.id] = { quantity: existing?.quantity ?? "" };
+      }
+    }
+    setDrafts(nextDrafts);
+  }, [selectedBatchId, preparedItems.length, outputs.length]);
 
   async function createBatch(event) {
     event.preventDefault();
@@ -96,38 +178,77 @@ export default function PreparationPanel({ user, flash }) {
     setBusy(false);
     if (error) return flash?.(error.message);
     setNewAmount("");
-    await load();
+    await load({ quiet: true });
     setSelectedBatchId(data.id);
-    flash?.("Lote de pré-preparo iniciado.");
+    setSection("production");
+    flash?.("Lote iniciado. Agora registre os produtos preparados.");
   }
 
-  async function addOutput(event) {
-    event.preventDefault();
-    const grams = numberValue(portionGrams);
-    const quantity = Math.trunc(numberValue(portionQuantity));
-    if (!selectedBatch || grams <= 0 || quantity <= 0) return flash?.("Informe o peso e a quantidade das porções.");
-    const nextProduced = producedBase + grams * quantity;
-    if (nextProduced > inputBase + 0.001) return flash?.("As porções ultrapassam a quantidade bruta do lote.");
+  async function saveOutput(item) {
+    if (!selectedBatch) return;
+    const draft = drafts[item.id] || {};
+    const existing = selectedOutputs.find(row => row.prepared_item_id === item.id);
+    let payload;
+
+    if (item.stock_type === "weight") {
+      const amount = numberValue(draft.amount);
+      if (amount <= 0) {
+        if (existing) {
+          setBusy(true);
+          const { error } = await supabase.from("prep_outputs").delete().eq("id", existing.id);
+          setBusy(false);
+          if (error) return flash?.(error.message);
+          await load({ quiet: true });
+        }
+        return;
+      }
+      const unit = draft.unit || item.default_unit || "kg";
+      payload = {
+        batch_id: selectedBatch.id,
+        prepared_item_id: item.id,
+        portion_grams: null,
+        quantity: null,
+        amount,
+        amount_unit: unit,
+        amount_base: toBase(amount, unit),
+      };
+    } else {
+      const quantity = Math.trunc(numberValue(draft.quantity));
+      if (quantity <= 0) {
+        if (existing) {
+          setBusy(true);
+          const { error } = await supabase.from("prep_outputs").delete().eq("id", existing.id);
+          setBusy(false);
+          if (error) return flash?.(error.message);
+          await load({ quiet: true });
+        }
+        return;
+      }
+      payload = {
+        batch_id: selectedBatch.id,
+        prepared_item_id: item.id,
+        portion_grams: item.portion_grams || null,
+        quantity,
+        amount: null,
+        amount_unit: null,
+        amount_base: null,
+      };
+    }
+
     setBusy(true);
-    const { error } = await supabase.from("prep_outputs").insert({
-      batch_id: selectedBatch.id,
-      portion_grams: grams,
-      quantity,
-      destination_id: destinationId || null,
-    });
+    const result = existing
+      ? await supabase.from("prep_outputs").update(payload).eq("id", existing.id)
+      : await supabase.from("prep_outputs").insert(payload);
     setBusy(false);
-    if (error) return flash?.(error.message);
-    setPortionGrams("");
-    setPortionQuantity("");
-    await load();
+    if (result.error) return flash?.(result.error.message);
+    await load({ quiet: true });
+    flash?.(`${item.name} atualizado.`);
   }
 
-  async function removeOutput(id) {
-    setBusy(true);
-    const { error } = await supabase.from("prep_outputs").delete().eq("id", id);
-    setBusy(false);
-    if (error) return flash?.(error.message);
-    await load();
+  async function saveAllOutputs() {
+    for (const item of availableOutputs) {
+      await saveOutput(item);
+    }
   }
 
   async function saveBatch({ finish = false } = {}) {
@@ -135,10 +256,12 @@ export default function PreparationPanel({ user, flash }) {
     const amount = numberValue(scrapsAmount);
     const base = toBase(amount, scrapsUnit);
     const closure = producedBase + base;
-    if (closure > inputBase + 0.001) return flash?.("Porções + aparas ultrapassam o peso bruto do lote.");
-    if (finish && Math.abs(inputBase - closure) > 1) {
-      return flash?.(`Ainda faltam registrar ${kgFromBase(inputBase - closure)} kg do lote entre porções e aparas.`);
+
+    if (closure > inputBase + 1) return flash?.("Produção + aparas ultrapassam a quantidade bruta do lote.");
+    if (finish && !hasUnweighedOutput && Math.abs(inputBase - closure) > 1) {
+      return flash?.(`Ainda faltam registrar ${kgFromBase(inputBase - closure)} kg entre produtos preparados e aparas.`);
     }
+
     setBusy(true);
     const payload = {
       scraps_amount: amount,
@@ -153,89 +276,229 @@ export default function PreparationPanel({ user, flash }) {
     const { error } = await supabase.from("prep_batches").update(payload).eq("id", selectedBatch.id);
     setBusy(false);
     if (error) return flash?.(error.message);
-    await load();
-    if (finish) setSelectedBatchId("");
-    flash?.(finish ? "Produção concluída e registrada." : "Produção salva.");
+    await load({ quiet: true });
+    if (finish) {
+      setSelectedBatchId("");
+      setSection("dashboard");
+    }
+    flash?.(finish ? "Produção concluída. O saldo da Cozinha foi atualizado." : "Lote salvo.");
+  }
+
+  function setPreset(days) {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    setReportStart(dateInput(start));
+    setReportEnd(dateInput(end));
   }
 
   const activeBatches = batches.filter(row => row.status === "in_progress");
   const completedBatches = batches.filter(row => row.status === "completed");
+  const todayStart = dayStart(today);
+  const tomorrow = nextDay(today);
+  const completedToday = completedBatches.filter(row => {
+    const when = new Date(row.completed_at || row.created_at);
+    return when >= todayStart && when < tomorrow;
+  });
+  const completedTodayIds = new Set(completedToday.map(row => row.id));
+  const todayOutputs = outputs.filter(row => completedTodayIds.has(row.batch_id));
+  const todayPortions = todayOutputs.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  const todayProducedBase = todayOutputs.reduce((sum, row) => {
+    if (row.prepared_item?.stock_type === "weight") return sum + Number(row.amount_base || 0);
+    return sum + Number(row.portion_grams || 0) * Number(row.quantity || 0);
+  }, 0);
+  const todayScraps = completedToday.reduce((sum, row) => sum + Number(row.scraps_base || 0), 0);
+
+  const reportStartDate = dayStart(reportStart);
+  const reportEndDate = nextDay(reportEnd);
+  const reportBatches = completedBatches.filter(row => {
+    const when = new Date(row.completed_at || row.created_at);
+    return when >= reportStartDate && when < reportEndDate;
+  });
+  const reportIds = new Set(reportBatches.map(row => row.id));
+  const reportOutputs = outputs.filter(row => reportIds.has(row.batch_id));
+  const reportSummary = Object.values(reportOutputs.reduce((acc, row) => {
+    const key = row.prepared_item_id || `legacy-${row.portion_grams}`;
+    const item = row.prepared_item;
+    if (!acc[key]) acc[key] = {
+      key,
+      name: item?.name || `Porção de ${row.portion_grams || "?"} g`,
+      emoji: item?.emoji || "📦",
+      stock_type: item?.stock_type || "count",
+      portion_grams: item?.portion_grams || row.portion_grams,
+      quantity: 0,
+      base: 0,
+    };
+    acc[key].quantity += Number(row.quantity || 0);
+    acc[key].base += item?.stock_type === "weight"
+      ? Number(row.amount_base || 0)
+      : Number(row.portion_grams || 0) * Number(row.quantity || 0);
+    return acc;
+  }, {}));
 
   if (selectedBatch) {
     return <div className="prep-panel">
-      <div className="page-heading prep-heading"><div><p className="eyebrow">PRÉ-PREPARO · ARAÚJO</p><h1>Registrar produção</h1><p className="muted">O insumo bruto é retirado, preparado e convertido em porções para uso interno.</p></div><button className="secondary" onClick={() => setSelectedBatchId("")}>Voltar</button></div>
+      <div className="page-heading prep-heading">
+        <div><p className="eyebrow">PRÉ-PREPARO · PRODUÇÃO</p><h1>{selectedBatch.input?.name}</h1><p className="muted">Registre o rendimento do lote e envie os produtos preparados para o estoque interno.</p></div>
+        <button className="secondary" type="button" onClick={() => setSelectedBatchId("")}>← Voltar</button>
+      </div>
 
       <section className="card prep-batch-hero">
         <div className="prep-product-icon">{selectedBatch.input?.emoji || "🥩"}</div>
-        <div><span className="muted small">{selectedBatch.input?.category}</span><h2>{selectedBatch.input?.name}</h2><p><b>{selectedBatch.input_amount} {selectedBatch.input_unit}</b> de insumo bruto</p></div>
+        <div><span className="muted small">{selectedBatch.input?.category}</span><h2>{selectedBatch.input?.name}</h2><p><b>{selectedBatch.input_amount} {selectedBatch.input_unit}</b> retirados da câmara</p></div>
         <span className="prep-status in-progress">Em preparo</span>
       </section>
 
-      <section className="card prep-section">
-        <div className="section-title"><h2>Porções produzidas</h2><span>{selectedOutputs.length} tipos/destinos</span></div>
-        {selectedOutputs.map(row => <div className="prep-output-row" key={row.id}>
-          <div><b>{row.quantity} × {Number(row.portion_grams).toLocaleString("pt-BR")} g</b><small>{row.destination?.name || "Destino não informado"} · {(Number(row.portion_grams) * Number(row.quantity) / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg</small></div>
-          <button type="button" className="prep-delete" onClick={() => removeOutput(row.id)} disabled={busy} aria-label="Remover porção">×</button>
-        </div>)}
-        {!selectedOutputs.length && <p className="muted">Nenhuma porção registrada ainda.</p>}
-        <form className="prep-output-form" onSubmit={addOutput}>
-          <label>Peso por porção (g)<input inputMode="decimal" value={portionGrams} onChange={e => setPortionGrams(e.target.value)} placeholder="400" /></label>
-          <label>Quantidade<input inputMode="numeric" value={portionQuantity} onChange={e => setPortionQuantity(e.target.value)} placeholder="6" /></label>
-          <label>Destino<select value={destinationId} onChange={e => setDestinationId(e.target.value)}>{destinations.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-          <button className="secondary" disabled={busy}>Adicionar porção</button>
-        </form>
-      </section>
-
-      <section className="card prep-section">
-        <div className="section-title"><h2>Aparas / sobra</h2><span>restante do porcionamento</span></div>
-        <div className="prep-scraps">
-          <input inputMode="decimal" value={scrapsAmount} onChange={e => setScrapsAmount(e.target.value)} placeholder="0" />
-          <select value={scrapsUnit} onChange={e => setScrapsUnit(e.target.value)}><option>kg</option><option>g</option></select>
-        </div>
-        <label className="prep-notes">Observação<textarea maxLength={500} rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ex.: aparas reservadas para aproveitamento interno." /></label>
-      </section>
-
-      <section className="prep-summary">
+      <section className="prep-progress-card card">
         <div><small>Entrada bruta</small><b>{kgFromBase(inputBase)} kg</b></div>
-        <div><small>Porções</small><b>{kgFromBase(producedBase)} kg</b></div>
+        <div><small>Produção medida</small><b>{kgFromBase(producedBase)} kg</b></div>
         <div><small>Aparas</small><b>{kgFromBase(scrapsBase)} kg</b></div>
-        <div><small>Falta registrar</small><b>{kgFromBase(remainingBase)} kg</b></div>
+        <div><small>{hasUnweighedOutput ? "Saldo não pesado" : "Falta registrar"}</small><b>{kgFromBase(remainingBase)} kg</b></div>
       </section>
 
-      <div className="prep-actions"><button className="secondary" onClick={() => saveBatch()} disabled={busy}>Salvar produção</button><button className="primary" onClick={() => saveBatch({ finish: true })} disabled={busy}>Concluir lote</button></div>
+      <section className="prep-output-catalog">
+        <div className="section-title"><h2>Produtos gerados</h2><span>Abra uma categoria e informe o que foi produzido</span></div>
+        {outputGroups.length ? outputGroups.map(([category, items]) => {
+          const open = openOutputCategory === category;
+          return <article className={`card prep-output-category ${open ? "open" : ""}`} key={category}>
+            <button type="button" className="prep-output-category-toggle" onClick={() => setOpenOutputCategory(open ? "" : category)}>
+              <span><b>{category}</b><small>{items.length} opções · destino mostrado em cada item</small></span><i>⌄</i>
+            </button>
+            {open && <div className="prep-output-category-body">{items.map(item => {
+              const draft = drafts[item.id] || {};
+              const existing = selectedOutputs.find(row => row.prepared_item_id === item.id);
+              return <div className={`prep-output-item ${existing ? "saved" : ""}`} key={item.id}>
+                <div className="prep-output-item-icon">{item.emoji || "📦"}</div>
+                <div className="prep-output-item-name"><b>{item.name}</b><small>{item.destination?.name || "Destino"}{item.portion_grams ? ` · ${Number(item.portion_grams).toLocaleString("pt-BR")} g por porção` : ""}</small></div>
+                {item.stock_type === "weight" ? <div className="prep-output-input weight">
+                  <input inputMode="decimal" value={draft.amount ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], amount: e.target.value } }))} placeholder="0" />
+                  <select value={draft.unit || item.default_unit || "kg"} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], unit: e.target.value } }))}><option>kg</option><option>g</option></select>
+                </div> : <div className="prep-output-input">
+                  <input inputMode="numeric" value={draft.quantity ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))} placeholder="0" />
+                  <span>porções</span>
+                </div>}
+                <button type="button" className={existing ? "prep-saved-button" : "secondary"} onClick={() => saveOutput(item)} disabled={busy}>{existing ? "✓ Salvo" : "Salvar"}</button>
+              </div>;
+            })}</div>}
+          </article>;
+        }) : <div className="notice">Ainda não existem produtos de saída configurados para este insumo.</div>}
+      </section>
+
+      <section className="card prep-section">
+        <div className="section-title"><h2>Aparas / sobra</h2><span>peso que não virou produto preparado</span></div>
+        <div className="prep-scraps"><input inputMode="decimal" value={scrapsAmount} onChange={e => setScrapsAmount(e.target.value)} placeholder="0" /><select value={scrapsUnit} onChange={e => setScrapsUnit(e.target.value)}><option>kg</option><option>g</option></select></div>
+        <label className="prep-notes">Observação<textarea maxLength={500} rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ex.: aparas reservadas, perda de limpeza, observação do lote." /></label>
+      </section>
+
+      <div className="prep-actions">
+        <button className="secondary" type="button" onClick={() => saveBatch()} disabled={busy}>Salvar lote</button>
+        <button className="primary" type="button" onClick={() => saveBatch({ finish: true })} disabled={busy}>Concluir e enviar ao estoque</button>
+      </div>
     </div>;
   }
 
   return <div className="prep-panel">
-    <div className="page-heading"><div><p className="eyebrow">PRÉ-PREPARO · ARAÚJO</p><h1>Produção de proteínas</h1><p className="muted">Você mesmo retira o insumo bruto, prepara as porções e registra o rendimento.</p></div></div>
+    <div className="page-heading prep-main-heading">
+      <div><p className="eyebrow">PRÉ-PREPARO · ARAÚJO</p><h1>Central de produção</h1><p className="muted">Produção, estoque preparado e relatórios no mesmo lugar.</p></div>
+      <button className="secondary" type="button" onClick={() => load()} disabled={busy}>↻ Atualizar</button>
+    </div>
 
-    <form className="card prep-new-batch" onSubmit={createBatch}>
-      <div className="section-title"><h2>Iniciar nova produção</h2><span>independente de pedido</span></div>
-      <div className="prep-new-grid">
-        <label>Insumo<select value={newInputId} onChange={e => setNewInputId(e.target.value)}>{inputs.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-        <label>Quantidade bruta<input inputMode="decimal" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="5" /></label>
-        <label>Unidade<select value={newUnit} onChange={e => setNewUnit(e.target.value)}><option>kg</option><option>g</option></select></label>
-        <button className="primary" disabled={busy}>Iniciar lote</button>
-      </div>
-    </form>
+    <nav className="prep-tabs no-print">
+      <button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Visão geral</button>
+      <button className={section === "production" ? "active" : ""} onClick={() => setSection("production")}>Produção</button>
+      <button className={section === "stock" ? "active" : ""} onClick={() => setSection("stock")}>Estoque preparado</button>
+      <button className={section === "reports" ? "active" : ""} onClick={() => setSection("reports")}>Relatórios</button>
+    </nav>
 
-    <section className="prep-list-section">
-      <div className="section-title"><h2>Em preparo</h2><span>{activeBatches.length} lotes</span></div>
-      <div className="prep-batch-list">{activeBatches.map(batch => {
-        const batchOutputs = outputs.filter(row => row.batch_id === batch.id);
-        const total = batchOutputs.reduce((sum, row) => sum + Number(row.portion_grams) * Number(row.quantity), 0);
-        return <button className="card prep-batch-card" type="button" key={batch.id} onClick={() => setSelectedBatchId(batch.id)}>
+    {section === "dashboard" && <>
+      <section className="prep-dashboard-kpis">
+        <article className="card"><span>Lotes em preparo</span><b>{activeBatches.length}</b><small>aguardando conclusão</small></article>
+        <article className="card"><span>Produções hoje</span><b>{completedToday.length}</b><small>lotes concluídos</small></article>
+        <article className="card"><span>Porções hoje</span><b>{todayPortions.toLocaleString("pt-BR")}</b><small>unidades produzidas</small></article>
+        <article className="card"><span>Produção medida</span><b>{kgFromBase(todayProducedBase)} kg</b><small>{kgFromBase(todayScraps)} kg de aparas</small></article>
+      </section>
+
+      <section className="prep-list-section">
+        <div className="section-title"><h2>Em preparo</h2><span>{activeBatches.length} lotes</span></div>
+        <div className="prep-batch-list">{activeBatches.map(batch => {
+          const batchOutputs = outputs.filter(row => row.batch_id === batch.id);
+          return <button className="card prep-batch-card" type="button" key={batch.id} onClick={() => setSelectedBatchId(batch.id)}>
+            <span className="prep-product-icon">{batch.input?.emoji || "🥩"}</span>
+            <span className="prep-batch-info"><b>{batch.input?.name}</b><small>{batch.input_amount} {batch.input_unit} bruto · {batchOutputs.reduce((sum, row) => sum + Number(row.quantity || 0), 0)} porções registradas</small></span>
+            <span className="prep-open">Abrir ›</span>
+          </button>;
+        })}</div>
+        {!activeBatches.length && <div className="empty card"><span>✓</span><h2>Nenhum lote aberto</h2><p>Quando retirar um insumo da câmara, inicie uma nova produção.</p></div>}
+      </section>
+
+      <section className="prep-list-section">
+        <div className="section-title"><h2>Últimas produções</h2><button className="text-button" type="button" onClick={() => setSection("reports")}>Ver relatórios</button></div>
+        <div className="prep-history">{completedBatches.slice(0, 6).map(batch => {
+          const batchOutputs = outputs.filter(row => row.batch_id === batch.id);
+          return <div className="card prep-history-row" key={batch.id}>
+            <span>{batch.input?.emoji || "🥩"}</span>
+            <div><b>{batch.input?.name}</b><small>{localDate(batch.completed_at)} · {batchOutputs.map(row => row.prepared_item?.name || `${row.portion_grams} g`).join(" · ") || "sem saída registrada"}</small></div>
+          </div>;
+        })}</div>
+      </section>
+    </>}
+
+    {section === "production" && <>
+      <form className="card prep-new-batch prep-new-batch-featured" onSubmit={createBatch}>
+        <div className="section-title"><div><p className="eyebrow">NOVO LOTE</p><h2>Iniciar nova produção</h2></div><span>retirada direta da câmara</span></div>
+        <div className="prep-new-grid">
+          <label>Insumo bruto<select value={newInputId} onChange={e => setNewInputId(e.target.value)}>{inputs.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label>Quantidade bruta<input inputMode="decimal" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="5" /></label>
+          <label>Unidade<select value={newUnit} onChange={e => setNewUnit(e.target.value)}><option>kg</option><option>g</option></select></label>
+          <button className="primary" disabled={busy}>Iniciar lote</button>
+        </div>
+      </form>
+
+      <section className="prep-list-section">
+        <div className="section-title"><h2>Lotes em preparo</h2><span>{activeBatches.length}</span></div>
+        <div className="prep-batch-list">{activeBatches.map(batch => <button className="card prep-batch-card" type="button" key={batch.id} onClick={() => setSelectedBatchId(batch.id)}>
           <span className="prep-product-icon">{batch.input?.emoji || "🥩"}</span>
-          <span className="prep-batch-info"><b>{batch.input?.name}</b><small>{batch.input_amount} {batch.input_unit} bruto · {batchOutputs.reduce((sum, row) => sum + Number(row.quantity), 0)} porções · {kgFromBase(total)} kg produzidos</small></span>
-          <span className="prep-open">Abrir ›</span>
-        </button>;
-      })}</div>
-      {!activeBatches.length && <div className="empty card"><span>✓</span><h2>Nenhum lote aberto</h2><p>Inicie uma produção quando retirar um insumo da câmara.</p></div>}
-    </section>
+          <span className="prep-batch-info"><b>{batch.input?.name}</b><small>{batch.input_amount} {batch.input_unit} bruto · iniciado em {localDate(batch.started_at)}</small></span>
+          <span className="prep-open">Continuar ›</span>
+        </button>)}</div>
+      </section>
+    </>}
 
-    {completedBatches.length > 0 && <section className="prep-list-section">
-      <div className="section-title"><h2>Produções concluídas</h2><span>{completedBatches.length} registros</span></div>
-      <div className="prep-history">{completedBatches.slice(0, 10).map(batch => <div className="card prep-history-row" key={batch.id}><span>{batch.input?.emoji || "🥩"}</span><div><b>{batch.input?.name}</b><small>{batch.input_amount} {batch.input_unit} bruto · {kgFromBase(batch.scraps_base)} kg de aparas</small></div></div>)}</div>
-    </section>}
+    {section === "stock" && <>
+      <div className="prep-stock-intro"><h2>Estoque preparado em tempo real</h2><p className="muted">A mesma informação que a Cozinha verá. Produção concluída soma; consumo confirmado desconta; retorno soma de volta.</p></div>
+      <div className="prep-stock-grid">{stock.map(row => <article className="card prep-stock-card" key={row.item_id}>
+        <div className="prep-stock-card-head"><span>{row.emoji || "📦"}</span><div><b>{row.item_name}</b><small>{row.destination_name}{row.portion_grams ? ` · ${Number(row.portion_grams)} g` : ""}</small></div></div>
+        <strong className={Number(row.balance_base) <= 0 ? "empty" : ""}>{formatStock(row)}</strong>
+        <div className="prep-stock-card-flow"><span>Produzido {formatStock(row, row.produced_base)}</span><span>Consumido {formatStock(row, row.consumed_base)}</span><span>Retorno {formatStock(row, row.returned_base)}</span></div>
+      </article>)}</div>
+    </>}
+
+    {section === "reports" && <>
+      <div className="page-heading report-heading prep-report-heading">
+        <div><p className="eyebrow">RELATÓRIO DE PRÉ-PREPARO</p><h2>Produção por período</h2><p className="muted">Veja diariamente, semanalmente ou em qualquer intervalo o que foi produzido e as aparas registradas.</p></div>
+        <button className="secondary no-print" type="button" onClick={() => window.print()}>Imprimir / salvar PDF</button>
+      </div>
+      <div className="prep-report-presets no-print"><button type="button" onClick={() => setPreset(1)}>Hoje</button><button type="button" onClick={() => setPreset(7)}>7 dias</button><button type="button" onClick={() => setPreset(30)}>30 dias</button></div>
+      <section className="card prep-report-filters no-print">
+        <label>De<input type="date" value={reportStart} onChange={e => setReportStart(e.target.value)} /></label>
+        <label>Até<input type="date" value={reportEnd} onChange={e => setReportEnd(e.target.value)} /></label>
+      </section>
+      <section className="prep-report-kpis">
+        <article className="card"><span>Lotes concluídos</span><b>{reportBatches.length}</b></article>
+        <article className="card"><span>Porções</span><b>{reportOutputs.reduce((sum, row) => sum + Number(row.quantity || 0), 0).toLocaleString("pt-BR")}</b></article>
+        <article className="card"><span>Aparas</span><b>{kgFromBase(reportBatches.reduce((sum, row) => sum + Number(row.scraps_base || 0), 0))} kg</b></article>
+      </section>
+      <section className="card prep-report-section">
+        <div className="section-title"><h2>Resumo produzido</h2><span>{reportSummary.length} itens</span></div>
+        {reportSummary.length ? reportSummary.map(row => <div className="prep-report-line" key={row.key}><span>{row.emoji} <b>{row.name}</b></span><strong>{row.stock_type === "weight" ? `${kgFromBase(row.base)} kg` : `${row.quantity.toLocaleString("pt-BR")} porções`}</strong></div>) : <p className="muted">Nenhuma produção concluída neste período.</p>}
+      </section>
+      <section className="card prep-report-section">
+        <div className="section-title"><h2>Lotes</h2><span>{reportBatches.length}</span></div>
+        {reportBatches.map(batch => <article className="prep-report-batch" key={batch.id}>
+          <div><b>{batch.input?.emoji || "🥩"} {batch.input?.name}</b><small>{localDate(batch.completed_at)} · {batch.input_amount} {batch.input_unit} bruto</small></div>
+          <span>{kgFromBase(batch.scraps_base)} kg de aparas</span>
+        </article>)}
+      </section>
+    </>}
   </div>;
 }
