@@ -626,7 +626,11 @@ export default function Workspace({ user, initialProfile }) {
     window.location.href = "/login";
   }
 
-  const nav = navByRole[profile.role] || navByRole.requester;
+  const baseNav = navByRole[profile.role] || navByRole.requester;
+  const isKitchenRequester = profile.role === "requester" && sectors.some(sector => sector.id === profile.sector_id && sector.slug === "cozinha");
+  const nav = profile.role === "requester" && !isKitchenRequester
+    ? baseNav.filter(([id]) => id !== "preparedStock")
+    : baseNav;
   const visibleOrders = selectedSectorFilter === "all" ? orders : orders.filter(order => order.sector_id === selectedSectorFilter);
   const itemsFor = order => items.filter(item => item.order_id === order.id);
   const sectorLabel = id => sectors.find(row => row.id === id)?.name || "Setor";
