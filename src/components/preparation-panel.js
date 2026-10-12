@@ -79,7 +79,7 @@ export default function PreparationPanel({ user, flash }) {
       stockResult,
     ] = await Promise.all([
       supabase.from("prep_inputs").select("*").eq("is_active", true).order("category").order("name"),
-      supabase.from("prepared_items").select("*, destination:sectors(name,slug)").eq("is_active", true).order("category").order("name"),
+      supabase.from("prepared_items").select("id,source_input_id,destination_sector_id,product_id,name,category,emoji,stock_type,portion_grams,default_unit,is_active").eq("is_active", true).order("category").order("name"),
       supabase.from("prep_batches").select("*, input:prep_inputs(name,category,emoji)").order("created_at", { ascending: false }).limit(250),
       supabase.rpc("get_prepared_stock"),
     ]);
@@ -413,7 +413,7 @@ export default function PreparationPanel({ user, flash }) {
           <div className="prep-extra-results-body">{extraOutputs.map(item => {
             const draft = drafts[item.id] || {};
             return <label className="prep-extra-row" key={item.id}>
-              <span><b>{item.emoji || "📦"} {item.name}</b><small>{item.destination?.name || "Destino"}</small></span>
+              <span><b>{item.emoji || "📦"} {item.name}</b><small>{"Cozinha"}</small></span>
               {item.stock_type === "weight" ? <div className="prep-output-input weight">
                 <input inputMode="decimal" value={draft.amount ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], amount: e.target.value } }))} placeholder="0" />
                 <select value={draft.unit || item.default_unit || "kg"} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], unit: e.target.value } }))}><option>kg</option><option>g</option></select>
