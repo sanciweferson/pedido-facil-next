@@ -126,11 +126,9 @@ export default function PreparationPanel({ user, flash }) {
   const selectedBatch = batches.find(row => row.id === selectedBatchId) || null;
   const selectedOutputs = selectedBatch ? outputs.filter(row => row.batch_id === selectedBatch.id) : [];
   const availableOutputs = selectedBatch ? preparedItems.filter(row => row.source_input_id === selectedBatch.input_id) : [];
-  const outputGroups = Object.entries(availableOutputs.reduce((acc, item) => {
-    const key = item.category || "Preparados";
-    (acc[key] ||= []).push(item);
-    return acc;
-  }, {})).sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
+  const portion200 = availableOutputs.find(item => item.stock_type === "count" && Number(item.portion_grams) === 200) || null;
+  const portion400 = availableOutputs.find(item => item.stock_type === "count" && Number(item.portion_grams) === 400) || null;
+  const extraOutputs = availableOutputs.filter(item => item.id !== portion200?.id && item.id !== portion400?.id);
 
   const producedBase = selectedOutputs.reduce((sum, row) => {
     if (row.prepared_item?.stock_type === "weight") return sum + Number(row.amount_base || 0);
@@ -184,85 +182,97 @@ export default function PreparationPanel({ user, flash }) {
     flash?.("Lote iniciado. Agora registre os produtos preparados.");
   }
 
-  async function saveOutput(item) {
-    if (!selectedBatch) return;
-    const draft = drafts[item.id] || {};
-    const existing = selectedOutputs.find(row => row.prepared_item_id === item.id);
-    let payload;
+  async function persistOutputs(items = availableOutputs) {
+    for (const item of items) {
+      const draft = drafts[item.id] || {};
+      const existing = selectedOutputs.find(row => row.prepared_item_id === item.id);
+      let payload = null;
 
-    if (item.stock_type === "weight") {
-      const amount = numberValue(draft.amount);
-      if (amount <= 0) {
-        if (existing) {
-          setBusy(true);
-          const { error } = await supabase.from("prep_outputs").delete().eq("id", existing.id);
-          setBusy(false);
-          if (error) return flash?.(error.message);
-          await load({ quiet: true });
+      if (item.stock_type === "weight") {
+        const amount = numberValue(draft.amount);
+        if (amount > 0) {
+          const unit = draft.unit || item.default_unit || "kg";
+          payload = {
+            batch_id: selectedBatch.id,
+            prepared_item_id: item.id,
+            portion_grams: null,
+            quantity: null,
+            amount,
+            amount_unit: unit,
+            amount_base: toBase(amount, unit),
+          };
         }
-        return;
-      }
-      const unit = draft.unit || item.default_unit || "kg";
-      payload = {
-        batch_id: selectedBatch.id,
-        prepared_item_id: item.id,
-        portion_grams: null,
-        quantity: null,
-        amount,
-        amount_unit: unit,
-        amount_base: toBase(amount, unit),
-      };
-    } else {
-      const quantity = Math.trunc(numberValue(draft.quantity));
-      if (quantity <= 0) {
-        if (existing) {
-          setBusy(true);
-          const { error } = await supabase.from("prep_outputs").delete().eq("id", existing.id);
-          setBusy(false);
-          if (error) return flash?.(error.message);
-          await load({ quiet: true });
+      } else {
+        const quantity = Math.trunc(numberValue(draft.quantity));
+        if (quantity > 0) {
+          payload = {
+            batch_id: selectedBatch.id,
+            prepared_item_id: item.id,
+            portion_grams: item.portion_grams || null,
+            quantity,
+            amount: null,
+            amount_unit: null,
+            amount_base: null,
+          };
         }
-        return;
       }
-      payload = {
-        batch_id: selectedBatch.id,
-        prepared_item_id: item.id,
-        portion_grams: item.portion_grams || null,
-        quantity,
-        amount: null,
-        amount_unit: null,
-        amount_base: null,
-      };
+
+      if (!payload && existing) {
+        const { error } = await supabase.from("prep_outputs").delete().eq("id", existing.id);
+        if (error) return error;
+      } else if (payload && existing) {
+        const { error } = await supabase.from("prep_outputs").update(payload).eq("id", existing.id);
+        if (error) return error;
+      } else if (payload) {
+        const { error } = await supabase.from("prep_outputs").insert(payload);
+        if (error) return error;
+      }
     }
+    return null;
+  }
 
-    setBusy(true);
-    const result = existing
-      ? await supabase.from("prep_outputs").update(payload).eq("id", existing.id)
-      : await supabase.from("prep_outputs").insert(payload);
-    setBusy(false);
-    if (result.error) return flash?.(result.error.message);
-    await load({ quiet: true });
-    flash?.(`${item.name} atualizado.`);
+  function draftProducedBase() {
+    return availableOutputs.reduce((sum, item) => {
+      const draft = drafts[item.id] || {};
+      if (item.stock_type === "weight") {
+        return sum + toBase(draft.amount, draft.unit || item.default_unit || "kg");
+      }
+      return sum + Number(item.portion_grams || 0) * Math.trunc(numberValue(draft.quantity));
+    }, 0);
   }
 
   async function saveAllOutputs() {
-    for (const item of availableOutputs) {
-      await saveOutput(item);
-    }
+    if (!selectedBatch) return;
+    setBusy(true);
+    const error = await persistOutputs();
+    setBusy(false);
+    if (error) return flash?.(error.message);
+    await load({ quiet: true });
+    flash?.("Produção parcial salva.");
   }
 
   async function saveBatch({ finish = false } = {}) {
     if (!selectedBatch) return;
     const amount = numberValue(scrapsAmount);
     const base = toBase(amount, scrapsUnit);
-    const closure = producedBase + base;
+    const draftBase = draftProducedBase();
+    const hasDraftUnweighed = availableOutputs.some(item =>
+      item.stock_type === "count" && !Number(item.portion_grams) && Math.trunc(numberValue(drafts[item.id]?.quantity)) > 0
+    );
+    const closure = draftBase + base;
 
     if (closure > inputBase + 1) return flash?.("Produção + aparas ultrapassam a quantidade bruta do lote.");
-    if (finish && !hasUnweighedOutput && Math.abs(inputBase - closure) > 1) {
-      return flash?.(`Ainda faltam registrar ${kgFromBase(inputBase - closure)} kg entre produtos preparados e aparas.`);
+    if (finish && !hasDraftUnweighed && Math.abs(inputBase - closure) > 1) {
+      return flash?.(`Ainda faltam registrar ${kgFromBase(inputBase - closure)} kg entre as porções e as aparas.`);
     }
 
     setBusy(true);
+    const outputError = await persistOutputs();
+    if (outputError) {
+      setBusy(false);
+      return flash?.(outputError.message);
+    }
+
     const payload = {
       scraps_amount: amount,
       scraps_unit: scrapsUnit,
@@ -281,7 +291,7 @@ export default function PreparationPanel({ user, flash }) {
       setSelectedBatchId("");
       setSection("dashboard");
     }
-    flash?.(finish ? "Produção concluída. O saldo da Cozinha foi atualizado." : "Lote salvo.");
+    flash?.(finish ? "Produção concluída. O saldo da Cozinha foi atualizado." : "Lote e porções salvos.");
   }
 
   function setPreset(days) {
@@ -356,38 +366,66 @@ export default function PreparationPanel({ user, flash }) {
         <div><small>{hasUnweighedOutput ? "Saldo não pesado" : "Falta registrar"}</small><b>{kgFromBase(remainingBase)} kg</b></div>
       </section>
 
-      <section className="prep-output-catalog">
-        <div className="section-title"><h2>Produtos gerados</h2><span>Abra uma categoria e informe o que foi produzido</span></div>
-        {outputGroups.length ? outputGroups.map(([category, items]) => {
-          const open = openOutputCategory === category;
-          return <article className={`card prep-output-category ${open ? "open" : ""}`} key={category}>
-            <button type="button" className="prep-output-category-toggle" onClick={() => setOpenOutputCategory(open ? "" : category)}>
-              <span><b>{category}</b><small>{items.length} opções · destino mostrado em cada item</small></span><i>⌄</i>
-            </button>
-            {open && <div className="prep-output-category-body">{items.map(item => {
-              const draft = drafts[item.id] || {};
-              const existing = selectedOutputs.find(row => row.prepared_item_id === item.id);
-              return <div className={`prep-output-item ${existing ? "saved" : ""}`} key={item.id}>
-                <div className="prep-output-item-icon">{item.emoji || "📦"}</div>
-                <div className="prep-output-item-name"><b>{item.name}</b><small>{item.destination?.name || "Destino"}{item.portion_grams ? ` · ${Number(item.portion_grams).toLocaleString("pt-BR")} g por porção` : ""}</small></div>
-                {item.stock_type === "weight" ? <div className="prep-output-input weight">
-                  <input inputMode="decimal" value={draft.amount ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], amount: e.target.value } }))} placeholder="0" />
-                  <select value={draft.unit || item.default_unit || "kg"} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], unit: e.target.value } }))}><option>kg</option><option>g</option></select>
-                </div> : <div className="prep-output-input">
-                  <input inputMode="numeric" value={draft.quantity ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))} placeholder="0" />
-                  <span>porções</span>
-                </div>}
-                <button type="button" className={existing ? "prep-saved-button" : "secondary"} onClick={() => saveOutput(item)} disabled={busy}>{existing ? "✓ Salvo" : "Salvar"}</button>
-              </div>;
-            })}</div>}
-          </article>;
-        }) : <div className="notice">Ainda não existem produtos de saída configurados para este insumo.</div>}
+      <section className="card prep-portion-card">
+        <div className="section-title">
+          <div><p className="eyebrow">PORCIONAMENTO</p><h2>Quantas porções foram feitas?</h2></div>
+          <span>{selectedBatch.input?.name}</span>
+        </div>
+
+        {(portion400 || portion200) ? <div className="prep-fixed-portions">
+          {portion400 && <label className="prep-fixed-portion">
+            <span className="prep-fixed-weight">400 <small>g</small></span>
+            <span className="prep-fixed-label">Porções de 400 gramas</span>
+            <div className="prep-fixed-control">
+              <input
+                inputMode="numeric"
+                value={drafts[portion400.id]?.quantity ?? ""}
+                onChange={e => setDrafts(prev => ({ ...prev, [portion400.id]: { ...prev[portion400.id], quantity: e.target.value } }))}
+                placeholder="0"
+              />
+              <b>porções</b>
+            </div>
+          </label>}
+
+          {portion200 && <label className="prep-fixed-portion">
+            <span className="prep-fixed-weight">200 <small>g</small></span>
+            <span className="prep-fixed-label">Porções de 200 gramas</span>
+            <div className="prep-fixed-control">
+              <input
+                inputMode="numeric"
+                value={drafts[portion200.id]?.quantity ?? ""}
+                onChange={e => setDrafts(prev => ({ ...prev, [portion200.id]: { ...prev[portion200.id], quantity: e.target.value } }))}
+                placeholder="0"
+              />
+              <b>porções</b>
+            </div>
+          </label>}
+        </div> : <div className="notice">Este insumo ainda não tem porções de 400 g e 200 g configuradas.</div>}
+
+        {extraOutputs.length > 0 && <details className="prep-extra-results">
+          <summary>Outros produtos preparados</summary>
+          <div className="prep-extra-results-body">{extraOutputs.map(item => {
+            const draft = drafts[item.id] || {};
+            return <label className="prep-extra-row" key={item.id}>
+              <span><b>{item.emoji || "📦"} {item.name}</b><small>{item.destination?.name || "Destino"}</small></span>
+              {item.stock_type === "weight" ? <div className="prep-output-input weight">
+                <input inputMode="decimal" value={draft.amount ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], amount: e.target.value } }))} placeholder="0" />
+                <select value={draft.unit || item.default_unit || "kg"} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], unit: e.target.value } }))}><option>kg</option><option>g</option></select>
+              </div> : <div className="prep-output-input">
+                <input inputMode="numeric" value={draft.quantity ?? ""} onChange={e => setDrafts(prev => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))} placeholder="0" />
+                <span>un</span>
+              </div>}
+            </label>;
+          })}</div>
+        </details>}
+
+        <button className="secondary prep-save-portions" type="button" onClick={saveAllOutputs} disabled={busy}>Salvar porções</button>
       </section>
 
-      <section className="card prep-section">
-        <div className="section-title"><h2>Aparas / sobra</h2><span>peso que não virou produto preparado</span></div>
+      <section className="card prep-section prep-scraps-card">
+        <div className="section-title"><div><p className="eyebrow">APARAS</p><h2>Quanto sobrou do preparo?</h2></div><span>o que não virou porção</span></div>
         <div className="prep-scraps"><input inputMode="decimal" value={scrapsAmount} onChange={e => setScrapsAmount(e.target.value)} placeholder="0" /><select value={scrapsUnit} onChange={e => setScrapsUnit(e.target.value)}><option>kg</option><option>g</option></select></div>
-        <label className="prep-notes">Observação<textarea maxLength={500} rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ex.: aparas reservadas, perda de limpeza, observação do lote." /></label>
+        <label className="prep-notes">Observação<textarea maxLength={500} rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observação opcional sobre o preparo." /></label>
       </section>
 
       <div className="prep-actions">
