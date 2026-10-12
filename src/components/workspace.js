@@ -14,7 +14,7 @@ const navByRole = {
   separator: [["home", "Acompanhar pedidos"], ["separate", "Separar pedidos"], ["reports", "Relatórios"]],
   inventory: [["home", "Acompanhar pedidos"], ["inventory", "Lançar saída"], ["confirmReturn", "Conferir retorno"], ["reports", "Relatórios"]],
   preparer: [["prepare", "Pré-preparo"]],
-  admin: [["home", "Acompanhar pedidos"], ["request", "Fazer pedido"], ["separate", "Separar pedidos"], ["receive", "Confirmar recebimento"], ["close", "Retorno e avarias"], ["inventory", "Lançar saída"], ["confirmReturn", "Conferir retorno"], ["reports", "Relatórios"]],
+  admin: [["home", "Acompanhar pedidos"], ["request", "Fazer pedido"], ["separate", "Separar pedidos"], ["prepare", "Pré-preparo"], ["receive", "Confirmar recebimento"], ["close", "Retorno e avarias"], ["inventory", "Lançar saída"], ["confirmReturn", "Conferir retorno"], ["reports", "Relatórios"]],
 };
 
 function localTime(value) {
