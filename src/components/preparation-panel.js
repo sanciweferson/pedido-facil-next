@@ -223,14 +223,17 @@ export default function PreparationPanel({ user, flash }) {
         }
       }
 
-      if (!payload && existing) {
-        const { error } = await supabase.from("prep_outputs").delete().eq("id", existing.id);
+      if (!payload) {
+        const { error } = await supabase
+          .from("prep_outputs")
+          .delete()
+          .eq("batch_id", selectedBatch.id)
+          .eq("prepared_item_id", item.id);
         if (error) return error;
-      } else if (payload && existing) {
-        const { error } = await supabase.from("prep_outputs").update(payload).eq("id", existing.id);
-        if (error) return error;
-      } else if (payload) {
-        const { error } = await supabase.from("prep_outputs").insert(payload);
+      } else {
+        const { error } = await supabase
+          .from("prep_outputs")
+          .upsert(payload, { onConflict: "batch_id,prepared_item_id" });
         if (error) return error;
       }
     }
