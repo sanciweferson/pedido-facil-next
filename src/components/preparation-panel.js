@@ -73,30 +73,36 @@ export default function PreparationPanel({ user, flash }) {
   async function load({ quiet = false } = {}) {
     if (!quiet) setBusy(true);
     const [
-      { data: inputRows, error: inputError },
-      { data: itemRows, error: itemError },
-      { data: batchRows, error: batchError },
-      { data: stockRows, error: stockError },
+      inputResult,
+      itemResult,
+      batchResult,
+      stockResult,
     ] = await Promise.all([
       supabase.from("prep_inputs").select("*").eq("is_active", true).order("category").order("name"),
       supabase.from("prepared_items").select("*, destination:sectors(name,slug)").eq("is_active", true).order("category").order("name"),
       supabase.from("prep_batches").select("*, input:prep_inputs(name,category,emoji)").order("created_at", { ascending: false }).limit(250),
       supabase.rpc("get_prepared_stock"),
     ]);
-    const firstError = inputError || itemError || batchError || stockError;
-    if (firstError) {
-      if (!quiet) setBusy(false);
-      flash?.(firstError.message);
-      return;
-    }
 
-    setInputs(inputRows || []);
-    setPreparedItems(itemRows || []);
-    setBatches(batchRows || []);
-    setStock(stockRows || []);
-    if (!newInputId && inputRows?.length) setNewInputId(inputRows[0].id);
+    const inputRows = inputResult.data || [];
+    const itemRows = itemResult.data || [];
+    const batchRows = batchResult.data || [];
+    const stockRows = stockResult.data || [];
 
-    const ids = (batchRows || []).map(row => row.id);
+    setInputs(inputRows);
+    setPreparedItems(itemRows);
+    setBatches(batchRows);
+    setStock(stockRows);
+
+    setNewInputId(current => {
+      if (current && inputRows.some(row => row.id === current)) return current;
+      return inputRows[0]?.id || "";
+    });
+
+    const firstError = inputResult.error || itemResult.error || batchResult.error || stockResult.error;
+    if (firstError) flash?.(firstError.message);
+
+    const ids = batchRows.map(row => row.id);
     if (ids.length) {
       const { data: outputRows, error: outputError } = await supabase
         .from("prep_outputs")
@@ -485,7 +491,7 @@ export default function PreparationPanel({ user, flash }) {
       <form className="card prep-new-batch prep-new-batch-featured" onSubmit={createBatch}>
         <div className="section-title"><div><p className="eyebrow">NOVO LOTE</p><h2>Iniciar nova produção</h2></div><span>retirada direta da câmara</span></div>
         <div className="prep-new-grid">
-          <label>Insumo bruto<select value={newInputId} onChange={e => setNewInputId(e.target.value)}>{inputs.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label>Insumo bruto<select value={newInputId} onChange={e => setNewInputId(e.target.value)} disabled={!inputs.length}><option value="">{inputs.length ? "Selecione uma proteína" : "Carregando proteínas..."}</option>{inputs.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
           <label>Quantidade bruta<input inputMode="decimal" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="5" /></label>
           <label>Unidade<select value={newUnit} onChange={e => setNewUnit(e.target.value)}><option>kg</option><option>g</option></select></label>
           <button className="primary" disabled={busy}>Iniciar lote</button>
