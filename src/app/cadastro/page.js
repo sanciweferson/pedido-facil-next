@@ -43,7 +43,7 @@ export default function RegisterPage() {
         <h1>Solicitar cadastro</h1>
         <p className="muted">O administrador confirma seu setor e o que você pode fazer.</p>
         <label>Seu nome<input required value={name} onChange={e => setName(e.target.value)} /></label>
-        <label>Setor<select required value={sector} onChange={e => setSector(e.target.value)}><option value="">Escolha o setor</option>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>Área / função<select required value={sector} onChange={e => setSector(e.target.value)}><option value="">Escolha sua área</option><option value="preparer">Pré-preparo</option>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{sector === "preparer" && <p className="register-helper">Pré-preparo é o perfil de quem retira insumos brutos, prepara porções e registra aparas/rendimento.</p>}
         <label>E-mail<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} /></label>
         <label>Senha<input type="password" minLength={8} autoComplete="new-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
         {message && <p className="notice">{message}</p>}
