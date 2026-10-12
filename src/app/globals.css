@@ -156,3 +156,5 @@
 .product-category.open .product-category-chevron{background:#f6fffa}
 :root[data-theme="dark"] .product-category-chevron{background:#202832}
 :root[data-theme="dark"] .product-category.open .product-category-chevron{background:#214334}
+
+.register-helper{margin:-6px 0 14px;padding:10px 12px;border-radius:10px;background:var(--blue-soft);color:#426084;font-size:12px;line-height:1.45}:root[data-theme="dark"] .register-helper{color:#a9c2df}
