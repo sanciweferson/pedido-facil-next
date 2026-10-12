@@ -3,15 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Brand from "@/components/brand";
+import PreparationPanel from "@/components/preparation-panel";
 
-const roleNames = { requester: "Solicitante", separator: "Separação", inventory: "Estoque", admin: "Administrador" };
+const roleNames = { requester: "Solicitante", separator: "Separação", inventory: "Estoque", preparer: "Pré-preparo", admin: "Administrador" };
 const statusNames = { requested: "Aguardando separação", separated: "Separado", received: "Recebido", return_submitted: "Retorno aguardando conferência", closed: "Concluído" };
-const unitsByType = { weight: ["g", "kg"], volume: ["ml", "L"], count: ["un"] };
+const unitsByType = { weight: ["kg", "g"], volume: ["ml", "L"], count: ["un"] };
 const factors = { g: 1, kg: 1000, ml: 1, L: 1000, un: 1 };
 const navByRole = {
   requester: [["home", "Acompanhar pedidos"], ["request", "Fazer pedido"], ["receive", "Confirmar recebimento"], ["close", "Retorno e avarias"], ["reports", "Relatórios"]],
   separator: [["home", "Acompanhar pedidos"], ["separate", "Separar pedidos"], ["reports", "Relatórios"]],
   inventory: [["home", "Acompanhar pedidos"], ["inventory", "Lançar saída"], ["confirmReturn", "Conferir retorno"], ["reports", "Relatórios"]],
+  preparer: [["prepare", "Pré-preparo"]],
   admin: [["home", "Acompanhar pedidos"], ["request", "Fazer pedido"], ["separate", "Separar pedidos"], ["receive", "Confirmar recebimento"], ["close", "Retorno e avarias"], ["inventory", "Lançar saída"], ["confirmReturn", "Conferir retorno"], ["reports", "Relatórios"]],
 };
 
@@ -122,7 +124,7 @@ export default function Workspace({ user, initialProfile }) {
   const [avatarUrl, setAvatarUrl] = useState(user.user_metadata?.avatar_url || "");
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarInputRef = useRef(null);
-  const [view, setView] = useState("home");
+  const [view, setView] = useState(initialProfile.role === "preparer" ? "prepare" : "home");
   const [sectors, setSectors] = useState([]);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -658,6 +660,8 @@ export default function Workspace({ user, initialProfile }) {
         </article>) : <p className="muted report-empty">Nenhum retorno ou avaria encontrado no período selecionado.</p>}
       </section>
     </>;
+
+    if (view === "prepare") return <PreparationPanel user={user} flash={flash} />;
 
     if (view === "request") return <><div className="page-heading"><div><p className="eyebrow">NOVA REQUISIÇÃO</p><h1>Fazer pedido</h1><p className="muted">Seu nome e o horário ficam registrados automaticamente.</p></div></div><form className="card form-card" onSubmit={submitOrder}><label>Setor<select value={sectorId} onChange={e => { setSectorId(e.target.value); setOpenProductCategory(""); }} disabled={profile.role === "requester" && Boolean(profile.sector_id)} required>{sectors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="section-title"><h2>Produtos do setor</h2><span>{products.filter(item => item.sector_id === sectorId).length} itens</span></div><div className="product-categories">{sortedRequestProductGroups.map(([category, categoryProducts], index) => { const groupKey = `${sectorId}:${category}`; const isOpen = openProductCategory === groupKey; const panelId = `product-category-${index}`; return <section className={`product-category ${isOpen ? "open" : ""}`} key={groupKey}><button type="button" className="product-category-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenProductCategory(isOpen ? "" : groupKey)}><span className="product-category-label">{category}<small>{categoryProducts.length} {categoryProducts.length === 1 ? "produto" : "produtos"}</small></span><span className="product-category-chevron" aria-hidden="true">⌄</span></button>{isOpen && <div id={panelId} className="product-category-items">{categoryProducts.map(product => <ProductRow {...sharedProductProps} key={product.id} product={product} keyId={product.id} amount="" unit={unitsFor(product)[0]} />)}</div>}</section>; })}</div><div className="helper">As porções prontas são contadas por unidade. Para os demais itens, escolha g, kg, ml, L ou un.</div><button className="primary full" disabled={busy}>{busy ? "Enviando…" : "Enviar pedido"}</button></form></>;
 
